@@ -130,6 +130,16 @@ case "$OS" in
     export CMAKE_COMMAND="cmake -DCMAKE_TOOLCHAIN_FILE=cmake/android-x86.cmake"
     ;;
 
+    ios-armv7)
+    # change those 2 parameters and make sure the IOS_SDK exists
+    export iPhoneOS="iPhoneOS"
+    export IOS_VERSION="10.3"
+    LIBTYPE="static"
+    ARCH="armv7"
+    export IOS_SDK="/Applications/Xcode.app/Contents/Developer/Platforms/${iPhoneOS}.platform/Developer/SDKs/${iPhoneOS}${IOS_VERSION}.sdk"
+    export CMAKE_COMMAND="cmake -DCMAKE_TOOLCHAIN_FILE=cmake/ios-armv7.cmake --debug-trycompile"
+    ;;
+
     generic)
     ;;
 
@@ -289,5 +299,7 @@ echo EXPERIMENTAL = ${EXPERIMENTAL}
 echo LIBRARY TYPE    = "${LIBTYPE}"
 mkbuilddir
 pwd
+echo "CCCCCCCMAKE    $CMAKE_COMMAND  "$BLAS_ARG" "$ARCH_ARG" "$SHARED_LIBS_ARG"  "$BUILD_TYPE" "$PACKAGING_ARG" "$EXPERIMENTAL_ARG" "$CUDA_COMPUTE" -DDEV=FALSE -DMKL_MULTI_THREADED=TRUE ../.."
 eval $CMAKE_COMMAND  "$BLAS_ARG" "$ARCH_ARG" "$SHARED_LIBS_ARG"  "$BUILD_TYPE" "$PACKAGING_ARG" "$EXPERIMENTAL_ARG" "$CUDA_COMPUTE" -DDEV=FALSE -DMKL_MULTI_THREADED=TRUE ../..
+echo "MMMMMMMAKE $MAKE_COMMAND" 
 eval $MAKE_COMMAND && cd ../../..
