@@ -5,20 +5,38 @@
 #ifndef LIBND4J_HELPER_GENERATOR_H
 #define LIBND4J_HELPER_GENERATOR_H
 
+#include <dll.h>
+
+#ifdef _MSC_VER
+// include for uint64_t on MSVC
+#include <stdint.h>
+#elif ANDROID
+#include <stdint.h>
+
+#ifndef UINT64_C
+#if defined(__LP64__)
+#define UINT64_C(c)     c ## UL
+#else
+#define UINT64_C(c)     c ## ULL
+#endif //LP64
+#endif // UINT64
+
+#endif // MSVC/ANDROID
+
+
 #ifdef __GNUC__
 #include <inttypes.h>
 #endif
 
+
 #define MAX_UINT 18446744073709551615LLU
 
-
-#include <mutex>
 
 namespace nd4j {
     namespace random {
 
 #ifdef __CUDACC__
-        class CudaManaged {
+        class ND4J_EXPORT CudaManaged {
         private:
 
         protected:
@@ -36,9 +54,9 @@ namespace nd4j {
             }
         };
 
-        class RandomBuffer : public CudaManaged {
+        class ND4J_EXPORT RandomBuffer : public CudaManaged {
 #else
-        class RandomBuffer {
+        class ND4J_EXPORT RandomBuffer {
 #endif
         private:
             void *devHolder;
@@ -594,7 +612,7 @@ namespace nd4j {
 
         };
 
-        class IGenerator {
+        class ND4J_EXPORT IGenerator {
         protected:
             Nd4jIndex limit;
             Nd4jIndex seed;
@@ -649,7 +667,7 @@ namespace nd4j {
 
 
 
-        class Xoroshiro128 : public IGenerator {
+        class ND4J_EXPORT Xoroshiro128 : public IGenerator {
         protected:
             uint64_t state[2];
 
@@ -698,7 +716,7 @@ namespace nd4j {
 
                 uint64_t s0 = 0;
                 uint64_t s1 = 0;
-                for(int i = 0; i < sizeof JUMP / sizeof *JUMP; i++)
+                for(unsigned int i = 0; i < sizeof JUMP / sizeof *JUMP; i++)
                     for(int b = 0; b < 64; b++) {
                         if (JUMP[i] & 1ULL << b) {
                             s0 ^= state[0];

@@ -12,7 +12,7 @@
 #include <templatemath.h>
 #include <ops/ops.h>
 #include <ops/special_ops.h>
-#ifndef __CUDACC__
+#ifdef _OPENMP
 #include <omp.h>
 #endif
 #include <pairwise_util.h>
@@ -26,72 +26,14 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <helper_cuda.h>
+#endif
+
+#ifndef _OPENMP
 #define omp_get_thread_num() 0
 #define omp_get_max_threads() 1
 #endif
 
-
-#define TRANSFORM_OPS \
-	(0, simdOps::Abs), \
-        (1, simdOps::Ceiling), \
-        (2, simdOps::Cosine), \
-        (3, simdOps::Exp), \
-        (4, simdOps::Floor), \
-        (5, simdOps::Log), \
-        (6, simdOps::Neg), \
-        (7, simdOps::Pow), \
-        (8, simdOps::Round), \
-        (9, simdOps::SetRange), \
-        (10,simdOps::Sigmoid), \
-        (11,simdOps::Sign), \
-        (12,simdOps::Sin), \
-        (13,simdOps::SoftPlus), \
-        (14,simdOps::Sqrt), \
-        (15,simdOps::Tanh), \
-        (16,simdOps::ACos), \
-        (17,simdOps::ASin), \
-        (18,simdOps::ATan), \
-        (19,simdOps::HardTanh), \
-        (20,simdOps::SoftSign), \
-        (21,simdOps::ELU), \
-        (22,simdOps::ELUDerivative), \
-        (23,simdOps::TanhDerivative), \
-        (24,simdOps::TimesOneMinus), \
-        (25,simdOps::HardTanhDerivative), \
-        (26,simdOps::Ones), \
-        (27,simdOps::Identity), \
-        (28,simdOps::Stabilize), \
-        (29,simdOps::SigmoidDerivative), \
-        (30,simdOps::SoftSignDerivative), \
-        (31,simdOps::LeakyRELU), \
-        (32,simdOps::LeakyRELUDerivative), \
-        (33,simdOps::RELU), \
-        (34,simdOps::Step), \
-        (35,simdOps::OneMinus), \
-        (36,simdOps::Col2Im), \
-        (37,simdOps::Im2col), \
-        (38,simdOps::SoftMax), \
-        (39,simdOps::SoftMaxDerivative), \
-        (40,simdOps::LogSoftMax), \
-        (41,simdOps::IsMax), \
-        (42,simdOps::SpecialDerivative), \
-        (43,simdOps::DropOut), \
-        (44,simdOps::DropOutInverted), \
-        (45,simdOps::CompareAndSet), \
-        (46,simdOps::ReplaceNans) ,\
-        (47,simdOps::StabilizeFP16) ,\
-        (48,simdOps::Histogram), \
-        (49,simdOps::Cube), \
-        (50,simdOps::CubeDerivative) , \
-        (51,simdOps::HardSigmoid), \
-        (52,simdOps::HardSigmoidDerivative) ,\
-        (53,simdOps::RationalTanh) ,\
-        (54,simdOps::RationalTanhDerivative) ,\
-        (55,simdOps::LogX) ,\
-        (59,simdOps::Not) ,\
-        (61,simdOps::RectifiedTanh) ,\
-        (62,simdOps::RectifiedTanhDerivative)
-
+#include "legacy_ops.h"
 
 
 namespace functions {
@@ -146,10 +88,10 @@ static __inline__ __device__ void transformCuda(
 			T *params,
 			T *result,
 			int *resultShapeInfo,
-			int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager) {
+			int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 
 		if(OpType::requiresSpecial) {
-			OpType::execSpecialCuda(dy,shapeInfo,result,resultShapeInfo,params, allocationPointer, reductionPointer, manager);
+			OpType::execSpecialCuda(dy,shapeInfo,result,resultShapeInfo,params, allocationPointer, reductionPointer, manager, tadShapeInfo, tadOffsets);
 			return;
 		} else {
 
@@ -245,8 +187,8 @@ template<typename OpType>
 			int *resultShapeInfo,
 			int *allocationPointer,
 			T *reductionPointer,
-			UnifiedSharedMemory *manager) {
-                                DISPATCH_BY_OPNUM(transformCuda, PARAMS(dy, shapeInfo, params, result, resultShapeInfo, allocationPointer, reductionPointer, manager), TRANSFORM_OPS);
+			UnifiedSharedMemory *manager, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
+                                DISPATCH_BY_OPNUM(transformCuda, PARAMS(dy, shapeInfo, params, result, resultShapeInfo, allocationPointer, reductionPointer, manager, tadShapeInfo, tadOffsets), TRANSFORM_OPS);
 	}
 
 
@@ -278,7 +220,7 @@ template<typename OpType>
 				int *resultShapeInfo,
 				T *extraParams,
 				int *indexes,
-				int *resultIndexes, int *tadShapeInfo, int *tadOffsets) {
+				int *resultIndexes, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
                             DISPATCH_BY_OPNUM(exec, PARAMS(dx, xShapeInfo, result, resultShapeInfo, extraParams, indexes, resultIndexes, tadShapeInfo, tadOffsets), TRANSFORM_OPS);
 			}
 
@@ -289,7 +231,7 @@ template<typename OpType>
 				int *xShapeInfo,
 				T *result,
 				int *resultShapeInfo,
-				T *extraParams, int *tadShapeInfo, int *tadOffsets) {
+				T *extraParams, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
                                 DISPATCH_BY_OPNUM(exec, PARAMS(dx, xShapeInfo, result, resultShapeInfo, extraParams, tadShapeInfo, tadOffsets), TRANSFORM_OPS);
 			}
 
@@ -300,7 +242,7 @@ template<typename OpType>
                     int *xShapeInfo,
                     T *result,
                     int *resultShapeInfo,
-                    T *extraParams, int *tadShapeInfo, int *tadOffsets) {
+                    T *extraParams, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 
                 if(OpType::requiresSpecial) {
                     OpType::execSpecial(dx,xShapeInfo,result,resultShapeInfo,extraParams, tadShapeInfo, tadOffsets);
@@ -310,6 +252,7 @@ template<typename OpType>
                 int n = shape::length(xShapeInfo);
                 int xElementWiseStride = shape::elementWiseStride(xShapeInfo);
                 int resultElementWiseStride = shape::elementWiseStride(resultShapeInfo);
+
                 if(xElementWiseStride >= 1 && resultElementWiseStride >= 1 && shape::order(xShapeInfo) == shape::order(resultShapeInfo)) {
                     exec<OpType>(dx,xElementWiseStride,result,resultElementWiseStride,extraParams,n);
                 }
@@ -337,7 +280,7 @@ template<typename OpType>
                                                  resultStridesIter) >= 0) {
                         ND4J_RAW_ITER_START(dim, rank, coord, shapeIter);
                         {
-                            /* Process the innermost dimension */
+                            // Process the innermost dimension
                             T *xIter = dx;
                             T *resultIter = result;
                             resultIter[0] = OpType::op(xIter[0], extraParams);
@@ -355,6 +298,7 @@ template<typename OpType>
 
                 }
 
+
             }
 
 
@@ -366,7 +310,7 @@ template<typename OpType>
 				int *resultShapeInfo,
 				T *extraParams,
 				int *indexes,
-				int *resultIndexes, int *tadShapeInfo, int *tadOffsets) {
+				int *resultIndexes, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 
 				int n = shape::length(xShapeInfo);
 #pragma omp parallel for simd schedule(guided) proc_bind(AFFINITY) default(shared)
@@ -397,6 +341,7 @@ template<typename OpType>
                         int start = span * tid;
                         int end = span * (tid + 1);
                         if (end > n) end = n;
+
 #pragma omp simd
                         for (Nd4jIndex i = start; i < end; i++) {
                             result[i] = OpType::op(dx[i], extraParams);
@@ -410,9 +355,10 @@ template<typename OpType>
                         int start = span * tid;
                         int end = span * (tid + 1);
                         if (end > n) end = n;
+
 #pragma omp simd
                         for (Nd4jIndex i = start; i < end; i++) {
-                            result[i*resultStride] = OpType::op(dx[i * resultStride], extraParams);
+                            result[i*resultStride] = OpType::op(dx[i * xStride], extraParams);
                         }
                     }
                 }
@@ -551,7 +497,7 @@ __device__ void transformSimpleGeneric(
 		T *dy,
 		int *xShapeInfo, int xRank,
 		T *params,
-		T *result,int *resultShapeInfo, int zRank, int *allocationPointer, T *reductionPointer) {
+		T *result,int *resultShapeInfo, int zRank, int *allocationPointer, T *reductionPointer, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 
 	__shared__ UnifiedSharedMemory *manager;
 
@@ -571,7 +517,7 @@ __device__ void transformSimpleGeneric(
 	    resultShapeInfo,
 	    allocationPointer,
 	    reductionPointer,
-	    manager);
+	    manager, tadShapeInfo, tadOffsets);
 }
 
 
@@ -606,7 +552,7 @@ __device__ void transformGenericIndexes(
 	}
 	__syncthreads();
 
-
+/*
 	functions::transform::Transform<T>::transformCuda(
 	        opNum,
 	        dy,
@@ -617,6 +563,7 @@ __device__ void transformGenericIndexes(
 	        allocationPointer,
 	        reductionPointer,
 	        manager);
+	        */
 }
 
 
@@ -753,7 +700,7 @@ extern "C" __global__ void fillIsMaxHalf(float16 *dx, long length, long idx) {
 }
 
 template <typename T>
-__device__ void fillDimensionalIsMaxGeneric(T *dX, int *xShapeInfo, T *dZ, int *zShapeInfo, int *tadOnlyShapeInfo, int *dimension, int dimensionLength, int *tadOffsets) {
+__device__ void fillDimensionalIsMaxGeneric(T *dX, int *xShapeInfo, T *dZ, int *zShapeInfo, int *tadOnlyShapeInfo, int *dimension, int dimensionLength, Nd4jIndex *tadOffsets) {
 
     __shared__ int tadLength;
     __shared__ int tadEWS;
@@ -804,15 +751,15 @@ __device__ void fillDimensionalIsMaxGeneric(T *dX, int *xShapeInfo, T *dZ, int *
     }
 }
 
-extern "C" __global__ void fillDimensionalIsMaxFloat(float *dx, int *xShapeInfo, float *dz, int *zShapeInfo, int *tadOnlyShapeInfo, int *dimension, int dimensionLength, int *tadOffsets) {
+extern "C" __global__ void fillDimensionalIsMaxFloat(float *dx, int *xShapeInfo, float *dz, int *zShapeInfo, int *tadOnlyShapeInfo, int *dimension, int dimensionLength, Nd4jIndex *tadOffsets) {
     fillDimensionalIsMaxGeneric<float>(dx, xShapeInfo, dz, zShapeInfo, tadOnlyShapeInfo, dimension, dimensionLength, tadOffsets);
 }
 
-extern "C" __global__ void fillDimensionalIsMaxDouble(double *dx, int *xShapeInfo, double *dz, int *zShapeInfo, int *tadOnlyShapeInfo, int *dimension, int dimensionLength, int *tadOffsets) {
+extern "C" __global__ void fillDimensionalIsMaxDouble(double *dx, int *xShapeInfo, double *dz, int *zShapeInfo, int *tadOnlyShapeInfo, int *dimension, int dimensionLength, Nd4jIndex *tadOffsets) {
     fillDimensionalIsMaxGeneric<double>(dx, xShapeInfo, dz, zShapeInfo, tadOnlyShapeInfo, dimension, dimensionLength, tadOffsets);
 }
 
-extern "C" __global__ void fillDimensionalIsMaxHalf(float16 *dx, int *xShapeInfo, float16 *dz, int *zShapeInfo, int *tadOnlyShapeInfo, int *dimension, int dimensionLength, int *tadOffsets) {
+extern "C" __global__ void fillDimensionalIsMaxHalf(float16 *dx, int *xShapeInfo, float16 *dz, int *zShapeInfo, int *tadOnlyShapeInfo, int *dimension, int dimensionLength, Nd4jIndex *tadOffsets) {
     fillDimensionalIsMaxGeneric<float16>(dx, xShapeInfo, dz, zShapeInfo, tadOnlyShapeInfo, dimension, dimensionLength, tadOffsets);
 }
 
@@ -822,28 +769,19 @@ __device__ void concatKernelGeneric(int dimension,
 									Nd4jPointer *data,
 									Nd4jPointer *inputShapeInfos,
 									T *result,
-									int *resultShapeInfo, Nd4jPointer *tadPointers, Nd4jPointer *offsetPointers, int *zTadShape, int *zOffsets) {
+									int *resultShapeInfo, Nd4jPointer *tadPointers, Nd4jPointer *offsetPointers, int *zTadShape, Nd4jIndex *zOffsets) {
 	int tid = threadIdx.x + blockIdx.x * blockDim.x;
 
-	__shared__ UnifiedSharedMemory *manager;
-
 	int zRank = shape::rank(resultShapeInfo);
-
-	if (threadIdx.x == 0) {
-		extern __shared__ unsigned char shmem[];
-		manager = new(shmem) UnifiedSharedMemory((int *) shmem);
-		manager->init(sizeof(UnifiedSharedMemory), 0, 0, sizeof(shape::TAD), zRank + 2);
-	}
-	__syncthreads();
 
 	T **dataT = (T **) data;
 	int **shapeInfoPointers = (int **) inputShapeInfos;
 	int **tadShapes = (int **) tadPointers;
-	int **tadOffsets = (int **) offsetPointers;
+	Nd4jIndex **tadOffsets = (Nd4jIndex **) offsetPointers;
 
 
     //__shared__ int tDim[1];
-    __shared__ int baseIdx;
+        __shared__ int baseIdx;
 
 		__shared__ int yLength;
 		__shared__ char yOrder;
@@ -894,12 +832,12 @@ __device__ void concatKernelGeneric(int dimension,
 
 
 		// TODO: to be pulled into separate kernel. matrix concatenation
-		for (int r = blockIdx.x; r < numArrays; r += gridDim.x) {
+		for (int r = 0; r < numArrays; r ++) {
 
 			int *currentShape = shapeInfoPointers[r];
 			T *currentData = dataT[r];
 			int *currentTad = tadShapes[r];
-			int *currentOffsets = tadOffsets[r];
+			Nd4jIndex *currentOffsets = tadOffsets[r];
 
 
 			if (threadIdx.x == 0) {
@@ -907,90 +845,120 @@ __device__ void concatKernelGeneric(int dimension,
 				yOrder = shape::order(currentTad);
 				yEWS = shape::elementWiseStride(currentTad);
                 numTads = shape::length(currentShape) / yLength;
-			}
-			__syncthreads();
 
-
-			if (threadIdx.x == 0) {
-				arrOffset = 0;
+                arrOffset = 0;
 				for (int f = 0; f < r; f++) {
 					arrOffset +=  shape::length(tadShapes[f]);
 				}
+
 			}
 			__syncthreads();
 
-			for (int j = 0; j < numTads; j++) {
-				int inputOffset = currentOffsets[j];
-				int resultOffset = zOffsets[j];
+            if (yLength == 1) {
+                // edge case, each thread will handle it's own tad then
+                for (int j = tid; j < numTads; j += blockDim.x * gridDim.x) {
+                    Nd4jIndex inputOffset = currentOffsets[j];
+				    Nd4jIndex resultOffset = zOffsets[j];
 
-				T *dataTAD = currentData + inputOffset;
-				T *resultTAD = result + resultOffset;
+				    T *dataTAD = currentData + inputOffset;
+				    T *resultTAD = result + resultOffset;
 
-                int sub[MAX_RANK];
+                    int sub[MAX_RANK];
 
-				shape::ind2subC(shape::rank(zTadShape),shape::shapeOf(zTadShape),arrOffset, sub);
-				Nd4jIndex baseOffset = shape::getOffset(0,shape::shapeOf(zTadShape),shape::stride(zTadShape), sub, shape::rank(zTadShape));
+                    if (shape::order(zTadShape) == 'f') {
+				        shape::ind2sub(shape::rank(zTadShape),shape::shapeOf(zTadShape),arrOffset, sub);
+				    } else {
+				        shape::ind2subC(shape::rank(zTadShape),shape::shapeOf(zTadShape),arrOffset, sub);
+				    }
+				    Nd4jIndex baseOffset = shape::getOffset(0,shape::shapeOf(zTadShape),shape::stride(zTadShape), sub, shape::rank(zTadShape));
 
-				resultTAD += baseOffset;
+				    resultTAD += baseOffset;
 
-				if (zOrder == yOrder && yEWS > 0  && tadEWS > 0) {
-					for (int i = threadIdx.x; i < yLength; i += blockDim.x) {
-						resultTAD[i * tadEWS] = dataTAD[i * yEWS];
-					}
-				} else {
-					if(tadEWS > 0 && shape::order(resultShapeInfo) == shape::order(currentTad)) {
-						if (threadIdx.x == 0) {
-							baseIdx = 0;
-							for (int f = 0; f < r; f++) {
-								baseIdx += shape::length(shapeInfoPointers[f]);
-							}
-						}
-						__syncthreads();
+					int yRank = shape::rank(currentTad);
+					int tadRank = shape::rank(zTadShape);
 
-						if (numTads == 1) {
-							for(int k = threadIdx.x; k < yLength; k+= blockDim.x) {
-								resultTAD[baseIdx + k * tadEWS] = dataTAD[k];
-							}
-						} else {
-							int yIdx[MAX_RANK];
-							int yRank = shape::rank(currentTad);
+					shape::ind2subC(yRank, shape::shapeOf(currentTad), 0,sub);
 
-							for (int i = threadIdx.x; i < yLength; i+= blockDim.x) {
-								shape::ind2subC(yRank, shape::shapeOf(currentTad), i, yIdx);
-								int yOffset = shape::getOffset(0, shape::shapeOf(currentTad), shape::stride(currentTad), yIdx, yRank);
+					Nd4jIndex yOffset = shape::getOffset(0, shape::shapeOf(currentTad), shape::stride(currentTad), sub, yRank);
+					resultOffset = shape::getOffset(0, shape::shapeOf(zTadShape), shape::stride(zTadShape), sub, tadRank);
 
-								resultTAD[baseIdx + i * tadEWS] =  dataTAD[yOffset];
-							}
-						}
-						__syncthreads();
-					} else {
+					resultTAD[resultOffset] =  dataTAD[yOffset];
+                }
+            } else {
+			    for (int j = blockIdx.x; j < numTads; j += gridDim.x) {
+				    Nd4jIndex inputOffset = currentOffsets[j];
+				    Nd4jIndex resultOffset = zOffsets[j];
 
-						int yIdx[MAX_RANK];
-						int yRank = shape::rank(currentTad);
-						int tadRank = shape::rank(zTadShape);
+				    T *dataTAD = currentData + inputOffset;
+				    T *resultTAD = result + resultOffset;
 
-						for (int i = threadIdx.x; i < yLength; i+= blockDim.x) {
-							shape::ind2subC(yRank, shape::shapeOf(currentTad), i,yIdx);
+                    int sub[MAX_RANK];
 
-							int yOffset = shape::getOffset(0, shape::shapeOf(currentTad), shape::stride(currentTad), yIdx, yRank);
-							int resultOffset = shape::getOffset(0, shape::shapeOf(zTadShape), shape::stride(zTadShape), yIdx, tadRank);
+				    shape::ind2subC(shape::rank(zTadShape),shape::shapeOf(zTadShape),arrOffset, sub);
+				    Nd4jIndex baseOffset = shape::getOffset(0,shape::shapeOf(zTadShape),shape::stride(zTadShape), sub, shape::rank(zTadShape));
 
-							resultTAD[resultOffset] =  dataTAD[yOffset];
-						}
-					}
-				}
-				__syncthreads();
+				    resultTAD += baseOffset;
+
+				    if (zOrder == yOrder && yEWS > 0  && tadEWS > 0) {
+				        //if (threadIdx.x == 0)
+				        //    printf("Branch A\n");
+
+					    for (int i = threadIdx.x; i < yLength; i += blockDim.x) {
+						    resultTAD[i * tadEWS] = dataTAD[i * yEWS];
+					    }
+				    } else {
+					    if(tadEWS > 0 && shape::order(resultShapeInfo) == shape::order(currentTad)) {
+					        //if (threadIdx.x == 0)
+				              //  printf("Branch B\n");
+
+						    if (threadIdx.x == 0) {
+							    baseIdx = 0;
+							    for (int f = 0; f < r; f++) {
+							    	baseIdx += shape::length(shapeInfoPointers[f]);
+						    	}
+					    		//printf("R: %i; baseIdx: %i;\n", baseIdx);
+				    		}
+			    			__syncthreads();
+
+		    				if (numTads == 1) {
+	    						for(int k = threadIdx.x; k < yLength; k+= blockDim.x) {
+    								resultTAD[baseIdx + k * tadEWS] = dataTAD[k];
+							    }
+						    } else {
+							    int yIdx[MAX_RANK];
+							    int yRank = shape::rank(currentTad);
+
+							    for (int i = threadIdx.x; i < yLength; i+= blockDim.x) {
+								    shape::ind2subC(yRank, shape::shapeOf(currentTad), i, yIdx);
+								    int yOffset = shape::getOffset(0, shape::shapeOf(currentTad), shape::stride(currentTad), yIdx, yRank);
+
+								    resultTAD[baseIdx + i * tadEWS] =  dataTAD[yOffset];
+							    }
+						    }
+						    __syncthreads();
+					    } else {
+                            //if (threadIdx.x == 0)
+				            //    printf("Branch C; yLength: %i;\n", yLength);
+
+						    int yIdx[MAX_RANK];
+						    int yRank = shape::rank(currentTad);
+						    int tadRank = shape::rank(zTadShape);
+
+						    for (int i = threadIdx.x; i < yLength; i+= blockDim.x) {
+							    shape::ind2subC(yRank, shape::shapeOf(currentTad), i,yIdx);
+
+							    int yOffset = shape::getOffset(0, shape::shapeOf(currentTad), shape::stride(currentTad), yIdx, yRank);
+							    int resultOffset = shape::getOffset(0, shape::shapeOf(zTadShape), shape::stride(zTadShape), yIdx, tadRank);
+
+							    resultTAD[resultOffset] =  dataTAD[yOffset];
+						    }
+					    }
+				    }
+				    __syncthreads();
+			    }
 			}
 			__syncthreads();
-
-//			if (threadIdx.x == 0)
-//				delete inputTAD;
 		}
-
-		//__syncthreads();
-
-		//if (threadIdx.x == 0 && tad != NULL)
-		//	delete tad;
 }
 
 template <typename T>
@@ -1141,6 +1109,7 @@ __device__ void concatKernelVStackGeneric(int dimension,
 
      if (threadIdx.x == 0) {
         inputLength = shape::length(inputShapes[0]);
+        inputEWS = shape::elementWiseStride(inputShapes[0]);
         resultEWS = shape::elementWiseStride(resultShapeInfo);
      }
      __syncthreads();
@@ -1150,15 +1119,9 @@ __device__ void concatKernelVStackGeneric(int dimension,
         int resultOffset = r * inputLength * resultEWS;
         T *inputData = (T *) input[r];
 
-        if (threadIdx.x == 0) {
-         inputEWS = shape::elementWiseStride(inputShapes[r]);
-        }
-        __syncthreads();
-
         for(int i = threadIdx.x; i < inputLength; i += blockDim.x) {
             result[resultOffset + i * resultEWS] = inputData[i * inputEWS];
         }
-        __syncthreads();
      }
 }
 
@@ -1198,7 +1161,7 @@ extern "C" __global__ void concatKernelDouble(int dimension,
 											  Nd4jPointer *data,
 											  Nd4jPointer *inputShapeInfo,
 											  double *result,
-											  int *resultShapeInfo, Nd4jPointer *tadPointers, Nd4jPointer *offsetPointers, int *zTadShape, int *zOffsets) {
+											  int *resultShapeInfo, Nd4jPointer *tadPointers, Nd4jPointer *offsetPointers, int *zTadShape, Nd4jIndex *zOffsets) {
 	concatKernelGeneric<double>(dimension, numArrays, data, inputShapeInfo, result, resultShapeInfo, tadPointers, offsetPointers, zTadShape, zOffsets);
 }
 
@@ -1207,7 +1170,7 @@ extern "C" __global__ void concatKernelFloat(int dimension,
 											 Nd4jPointer *data,
 											 Nd4jPointer *inputShapeInfo,
 											 float *result,
-											 int *resultShapeInfo, Nd4jPointer *tadPointers, Nd4jPointer *offsetPointers, int *zTadShape, int *zOffsets) {
+											 int *resultShapeInfo, Nd4jPointer *tadPointers, Nd4jPointer *offsetPointers, int *zTadShape, Nd4jIndex *zOffsets) {
 	concatKernelGeneric<float>(dimension, numArrays, data, inputShapeInfo, result, resultShapeInfo, tadPointers, offsetPointers, zTadShape, zOffsets);
 }
 
@@ -1216,7 +1179,7 @@ extern "C" __global__ void concatKernelHalf(int dimension,
 											 Nd4jPointer *data,
 											 Nd4jPointer *inputShapeInfo,
 											 float16 *result,
-											 int *resultShapeInfo, Nd4jPointer *tadPointers, Nd4jPointer *offsetPointers, int *zTadShape, int *zOffsets) {
+											 int *resultShapeInfo, Nd4jPointer *tadPointers, Nd4jPointer *offsetPointers, int *zTadShape, Nd4jIndex *zOffsets) {
 	concatKernelGeneric<float16>(dimension, numArrays, data, inputShapeInfo, result, resultShapeInfo, tadPointers, offsetPointers, zTadShape, zOffsets);
 }
 
@@ -1229,9 +1192,9 @@ __device__ void pullRowsKernelGeneric(T *x,
                                      int n,
                                      int *indexes,
                                      int *tadShapeInfo,
-                                     int *tadOffsets,
+                                     Nd4jIndex *tadOffsets,
                                      int *zTadShapeInfo,
-                                     int *zTadOffsets) {
+                                     Nd4jIndex *zTadOffsets) {
 
 
     int xEWS = shape::elementWiseStride(tadShapeInfo);
@@ -1258,9 +1221,9 @@ extern "C" __global__ void pullRowsKernelHalf(
                                      int n,
                                      int *indexes,
                                      int *tadShapeInfo,
-                                     int *tadOffsets,
+                                     Nd4jIndex *tadOffsets,
                                      int *zTadShapeInfo,
-                                     int *zTadOffsets) {
+                                     Nd4jIndex *zTadOffsets) {
     pullRowsKernelGeneric<float16>(x, xShapeInfo, z, zShapeInfo, n, indexes, tadShapeInfo, tadOffsets, zTadShapeInfo, zTadOffsets);
 }
 
@@ -1271,9 +1234,9 @@ extern "C" __global__ void pullRowsKernelFloat(float *x,
                                      int n,
                                      int *indexes,
                                      int *tadShapeInfo,
-                                     int *tadOffsets,
+                                     Nd4jIndex *tadOffsets,
                                      int *zTadShapeInfo,
-                                     int *zTadOffsets) {
+                                     Nd4jIndex *zTadOffsets) {
     pullRowsKernelGeneric<float>(x, xShapeInfo, z, zShapeInfo, n, indexes, tadShapeInfo, tadOffsets, zTadShapeInfo, zTadOffsets);
 }
 
@@ -1284,9 +1247,9 @@ extern "C" __global__ void pullRowsKernelDouble(double *x,
                                      int n,
                                      int *indexes,
                                      int *tadShapeInfo,
-                                     int *tadOffsets,
+                                     Nd4jIndex *tadOffsets,
                                      int *zTadShapeInfo,
-                                     int *zTadOffsets) {
+                                     Nd4jIndex *zTadOffsets) {
     pullRowsKernelGeneric<double>(x, xShapeInfo, z, zShapeInfo, n, indexes, tadShapeInfo, tadOffsets, zTadShapeInfo, zTadOffsets);
 }
 
@@ -1324,6 +1287,61 @@ extern "C" __global__ void kernelHalfsToFloats(half *dx, int n, float *dz) {
     convertHalfsToGeneric<float>(dx, n, dz);
 }
 
+/**
+ * This kernel accumulates X arrays, and stores result into Z
+ *
+ * @tparam T
+ * @param x
+ * @param z
+ * @param n
+ * @param length
+ */
+template<typename T>
+__device__ void accumulateKernelGeneric(T **x, T *z, int n, const Nd4jIndex length) {
+    __shared__ T *shmem;
+
+    if (threadIdx.x == 0) {
+        extern __shared__ unsigned char sharedmem[];
+        shmem = (T *) sharedmem;
+    }
+    __syncthreads();
+
+    for (int r = blockDim.x * blockIdx.x; r < length; r += blockDim.x * gridDim.x) {
+        shmem[threadIdx.x] = 0.0f;
+
+        Nd4jIndex baseIdx = r;
+
+        // aggregation step, we roll over all arrays
+        for (int ar = 0; ar < n; ar++) {
+            T *cdata = (T *) x[ar];
+            cdata += baseIdx;
+
+            if (baseIdx + threadIdx.x < length)
+                shmem[threadIdx.x] += cdata[threadIdx.x];
+        }
+
+        T *wdata = z + baseIdx;
+
+        // saving accumulated values
+        if (baseIdx + threadIdx.x < length) {
+            wdata[threadIdx.x] = shmem[threadIdx.x];
+       }
+    }
+}
+
+
+extern "C" __global__ void accumulateKernelHalf(float16 **dx, float16 *dz, int n, Nd4jIndex length) {
+    accumulateKernelGeneric<float16>(dx, dz, n, length);
+}
+
+extern "C" __global__ void accumulateKernelFloat(float **dx, float *dz, int n, Nd4jIndex length) {
+    accumulateKernelGeneric<float>(dx, dz, n, length);
+}
+
+extern "C" __global__ void accumulateKernelDouble(double **dx, double *dz, int n, Nd4jIndex length) {
+    accumulateKernelGeneric<double>(dx, dz, n, length);
+}
+
 
 template <typename T>
 __device__ void averagingKernelGeneric(T **dx, T *dz, int n, Nd4jIndex length, bool propagate) {
@@ -1339,7 +1357,7 @@ __device__ void averagingKernelGeneric(T **dx, T *dz, int n, Nd4jIndex length, b
 
     // each block cycles over it's own part of arrays
     for (int r = blockDim.x * blockIdx.x; r < length; r += blockDim.x * gridDim.x) {
-        shmem[threadIdx.x] = 0.0f;
+        shmem[threadIdx.x] = (T) 0.0f;
 
         Nd4jIndex baseIdx = r;
 
@@ -1352,16 +1370,21 @@ __device__ void averagingKernelGeneric(T **dx, T *dz, int n, Nd4jIndex length, b
                 shmem[threadIdx.x] += cdata[threadIdx.x];
         }
 
+
+        // average data in shared memory
+        if (baseIdx + threadIdx.x < length)
+            shmem[threadIdx.x] /= n;
+
         // div step & write out step
         if (dz != nullptr) {
             T *wdata = dz + baseIdx;
 
             if (baseIdx + threadIdx.x < length) {
-                shmem[threadIdx.x] /= n;
                 wdata[threadIdx.x] = shmem[threadIdx.x];
             }
         }
 
+        // propagate averaged data to all arrays
         if (propagate)
             for (int ar = 0; ar < n; ar++) {
                 T *cdata = (T *) dx[ar];
@@ -1386,10 +1409,74 @@ extern "C" __global__ void averagingKernelDouble(double **dx, double *dz, int n,
     averagingKernelGeneric<double>(dx, dz, n, length, propagate);
 }
 
+template<typename T>
+__device__ void tearKernelGeneric(T *x, int *xShapeInfo, Nd4jPointer *targets, int *zShapeInfo, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
+
+    __shared__ Nd4jIndex tadLength;
+    __shared__ int tadEWS;
+    __shared__ int zEWS;
+    __shared__ int tadRank;
+    __shared__ Nd4jIndex numTads;
+    __shared__ int zRank;
+    __shared__ int *tadShape;
+    __shared__ int *tadStride;
+    __shared__ int *zShape;
+    __shared__ int *zStride;
+
+    if (threadIdx.x == 0) {
+        tadLength = shape::length(tadShapeInfo);
+        tadEWS = shape::elementWiseStride(tadShapeInfo);
+        zEWS = shape::elementWiseStride(zShapeInfo);
+        tadRank = shape::rank(tadShapeInfo);
+        numTads = shape::length(xShapeInfo) / tadLength;
+        zRank = shape::rank(zShapeInfo);
+        tadShape = shape::shapeOf(tadShapeInfo);
+        tadStride = shape::stride(tadShapeInfo);
+        zShape = shape::shapeOf(zShapeInfo);
+        zStride = shape::stride(zShapeInfo);
+    }
+    __syncthreads();
+
+    for (Nd4jIndex r = blockIdx.x; r < numTads; r += gridDim.x) {
+        T *z = (T *) targets[r];
+        T *s = x + tadOffsets[r];
+
+        if (zEWS > 0 && tadEWS > 0) {
+        for (Nd4jIndex i = threadIdx.x; i < tadLength; i += blockDim.x) {
+            z[i * zEWS] = s[i * tadEWS];
+        }
+        } else {
+            int xCoord[MAX_RANK];
+            int zCoord[MAX_RANK];
+
+            for (Nd4jIndex j = 0; j < tadLength; j++) {
+                shape::ind2sub(tadRank,tadShape, j, xCoord);
+                shape::ind2sub(zRank, zShape, j, zCoord);
+
+                Nd4jIndex xOffset = shape::getOffset(0, tadShape, tadStride, xCoord, tadRank);
+                Nd4jIndex zOffset = shape::getOffset(0, zShape, zStride, zCoord, zRank);
+
+                z[zOffset] = s[xOffset];
+            }
+        }
+    }
+}
+
+extern "C" __global__ void tearKernelDouble(double *x, int *xShapeInfo, Nd4jPointer *targets, int *zShapeInfo, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
+    tearKernelGeneric<double>(x, xShapeInfo, targets, zShapeInfo, tadShapeInfo, tadOffsets);
+}
+
+extern "C" __global__ void tearKernelFloat(float *x, int *xShapeInfo, Nd4jPointer *targets, int *zShapeInfo, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
+    tearKernelGeneric<float>(x, xShapeInfo, targets, zShapeInfo, tadShapeInfo, tadOffsets);
+}
+
+extern "C" __global__ void tearKernelHalf(float16 *x, int *xShapeInfo, Nd4jPointer *targets, int *zShapeInfo, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
+    tearKernelGeneric<float16>(x, xShapeInfo, targets, zShapeInfo, tadShapeInfo, tadOffsets);
+}
 
 
 template<typename T>
-__device__ void shuffleKernelGeneric(T **dX, int **xShapeInfo, T **dZ, int **zShapeInfo, int N, int *shuffleMap, int **tadOnlyShapeInfo, int **tadOffsets) {
+__device__ void shuffleKernelGeneric(T **dX, int **xShapeInfo, T **dZ, int **zShapeInfo, int N, int *shuffleMap, int **tadOnlyShapeInfo, Nd4jIndex **tadOffsets) {
 
             // we assume that shuffle map for each X contains pair TAD Y
 
@@ -1427,8 +1514,8 @@ __device__ void shuffleKernelGeneric(T **dX, int **xShapeInfo, T **dZ, int **zSh
                 if (shuffleMap[r] < 0)
                     continue;
 
-                int oldOffset = tadOffsets[f][r];
-                int newOffset = tadOffsets[f][shuffleMap[r]];
+                Nd4jIndex oldOffset = tadOffsets[f][r];
+                Nd4jIndex newOffset = tadOffsets[f][shuffleMap[r]];
 
 
 
@@ -1467,15 +1554,15 @@ __device__ void shuffleKernelGeneric(T **dX, int **xShapeInfo, T **dZ, int **zSh
         }
 }
 
-extern "C" __global__ void shuffleKernelDouble(double **x, int **xShapeInfo, double **z, int **zShapeInfo, int N, int *shuffleMap, int **tadOnlyShapeInfo, int **tadOffsets) {
+extern "C" __global__ void shuffleKernelDouble(double **x, int **xShapeInfo, double **z, int **zShapeInfo, int N, int *shuffleMap, int **tadOnlyShapeInfo, Nd4jIndex **tadOffsets) {
     shuffleKernelGeneric<double>(x, xShapeInfo, z, zShapeInfo, N, shuffleMap, tadOnlyShapeInfo, tadOffsets);
 }
 
-extern "C" __global__ void shuffleKernelFloat(float **x, int **xShapeInfo, float **z, int **zShapeInfo, int N, int *shuffleMap, int **tadOnlyShapeInfo, int **tadOffsets) {
+extern "C" __global__ void shuffleKernelFloat(float **x, int **xShapeInfo, float **z, int **zShapeInfo, int N, int *shuffleMap, int **tadOnlyShapeInfo, Nd4jIndex **tadOffsets) {
     shuffleKernelGeneric<float>(x, xShapeInfo, z, zShapeInfo, N, shuffleMap, tadOnlyShapeInfo, tadOffsets);
 }
 
-extern "C" __global__ void shuffleKernelHalf(float16 **x, int **xShapeInfo, float16 **z, int **zShapeInfo, int N, int *shuffleMap, int **tadOnlyShapeInfo, int **tadOffsets) {
+extern "C" __global__ void shuffleKernelHalf(float16 **x, int **xShapeInfo, float16 **z, int **zShapeInfo, int N, int *shuffleMap, int **tadOnlyShapeInfo, Nd4jIndex **tadOffsets) {
     shuffleKernelGeneric<float16>(x, xShapeInfo, z, zShapeInfo, N, shuffleMap, tadOnlyShapeInfo, tadOffsets);
 }
 
@@ -1485,9 +1572,9 @@ DISPATCH_KERNEL_SIMPLE(transformStrided_, transformSimpleGeneric, double, INPUT(
 DISPATCH_KERNEL_SIMPLE(transformStrided_, transformSimpleGeneric, float16, INPUT(Nd4jIndex n, float16 *x, int xStride, float16 *extraParams, float16 *z, int zStride, int *allocationPointer, float16 *reductionPointer), PARAMS(n, x, xStride, extraParams, z, zStride, allocationPointer, reductionPointer), OPS_A(TRANSFORM_OPS))
 
 // transform shaped
-DISPATCH_KERNEL_SIMPLE(transformShaped_, transformSimpleGeneric, float, INPUT(float *x, int *xShape, int xRank, float *extraParams, float *z, int *zShape, int zRank, int *allocationPointer, float *reductionPointer), PARAMS(x, xShape, xRank, extraParams, z, zShape, zRank, allocationPointer, reductionPointer), OPS_A(TRANSFORM_OPS))
-DISPATCH_KERNEL_SIMPLE(transformShaped_, transformSimpleGeneric, double, INPUT(double *x, int *xShape, int xRank, double *extraParams, double *z, int *zShape, int zRank, int *allocationPointer, double *reductionPointer), PARAMS(x, xShape, xRank, extraParams, z, zShape, zRank, allocationPointer, reductionPointer), OPS_A(TRANSFORM_OPS))
-DISPATCH_KERNEL_SIMPLE(transformShaped_, transformSimpleGeneric, float16, INPUT(float16 *x, int *xShape, int xRank, float16 *extraParams, float16 *z, int *zShape, int zRank, int *allocationPointer, float16 *reductionPointer), PARAMS(x, xShape, xRank, extraParams, z, zShape, zRank, allocationPointer, reductionPointer), OPS_A(TRANSFORM_OPS))
+DISPATCH_KERNEL_SIMPLE(transformShaped_, transformSimpleGeneric, float, INPUT(float *x, int *xShape, int xRank, float *extraParams, float *z, int *zShape, int zRank, int *allocationPointer, float *reductionPointer,  int *tadShapeInfo, Nd4jIndex *tadOffsets), PARAMS(x, xShape, xRank, extraParams, z, zShape, zRank, allocationPointer, reductionPointer, tadShapeInfo, tadOffsets), OPS_A(TRANSFORM_OPS))
+DISPATCH_KERNEL_SIMPLE(transformShaped_, transformSimpleGeneric, double, INPUT(double *x, int *xShape, int xRank, double *extraParams, double *z, int *zShape, int zRank, int *allocationPointer, double *reductionPointer, int *tadShapeInfo, Nd4jIndex *tadOffsets), PARAMS(x, xShape, xRank, extraParams, z, zShape, zRank, allocationPointer, reductionPointer, tadShapeInfo, tadOffsets), OPS_A(TRANSFORM_OPS))
+DISPATCH_KERNEL_SIMPLE(transformShaped_, transformSimpleGeneric, float16, INPUT(float16 *x, int *xShape, int xRank, float16 *extraParams, float16 *z, int *zShape, int zRank, int *allocationPointer, float16 *reductionPointer,  int *tadShapeInfo, Nd4jIndex *tadOffsets), PARAMS(x, xShape, xRank, extraParams, z, zShape, zRank, allocationPointer, reductionPointer, tadShapeInfo, tadOffsets), OPS_A(TRANSFORM_OPS))
 
 #endif
 

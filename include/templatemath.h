@@ -10,18 +10,44 @@
 
 #include <math.h>
 #include <dll.h>
+#include <pointercast.h>
 
 #ifdef __CUDACC__
 #include <types/float16.h>
 #define math_def __host__ __device__
 
-typedef union {
-		struct {
+#ifdef CUDA_9
+struct HALFS{
 			half H;
 			half L;
-		} B;
+
+            __host__ __device__
+			HALFS() {};
+
+			__host__ __device__
+			~HALFS() {};
+		};
+union PAIR {
+		HALFS B;
 		int W;
+
+        __host__ __device__
+		PAIR() {};
+
+		__host__ __device__
+		~PAIR(){}
+
+};
+#else
+typedef union {
+        struct {
+            half H;
+            half L;
+        } B;
+        int W;
 } PAIR;
+#endif // cuda_9
+
 #else
 #define math_def
 #include <types/float16.h>
@@ -45,16 +71,22 @@ template<typename T>
 		template<typename T>
         math_def inline T nd4j_min(T val1, T val2);
 
-#ifndef __CUDACC__
+		template<typename T>
+		math_def inline T nd4j_copysign(T val1, T val2);
+
+//#ifndef __CUDACC__
         template<typename T>
         math_def inline T nd4j_dot(T *x, T *y, int length);
-#endif
+//#endif
 
 		template<typename T>
         math_def inline T nd4j_ceil(T val1);
 
 		template<typename T>
         math_def inline T nd4j_cos(T val);
+
+        template<typename T>
+        math_def inline T nd4j_cosh(T val);
 
 		template<typename T>
         math_def inline T nd4j_exp(T val);
@@ -76,6 +108,9 @@ template<typename T>
 
         template<typename T>
         math_def inline T nd4j_fmod(T num, T denom);
+
+		template<typename T>
+        math_def inline T nd4j_erf(T num);
 
 		template<typename T>
         math_def inline T nd4j_sigmoid(T val) {
@@ -126,6 +161,24 @@ template<typename T>
         template<typename T>
         math_def inline T nd4j_tan(T val);
 
+		template<typename T>
+		math_def inline T nd4j_atan2(T val1, T val2);
+
+		template<>
+		math_def inline float16 nd4j_atan2<float16>(float16 value1, float16 value2) {
+			return (float16) atan2f((float) value1, (float) value2);
+		}
+
+		template<>
+		math_def inline float nd4j_atan2<float>(float value1, float value2) {
+			return atan2f(value1, value2);
+		}
+
+		template<>
+		math_def inline double nd4j_atan2<double>(double value1, double value2) {
+			return atan2(value1, value2);
+		}
+
         template<typename T>
         math_def inline T nd4j_tan(T val) {
             return nd4j_log((val + 1 / (1 - val)) * 0.5);
@@ -164,7 +217,7 @@ template<typename T>
             return nd4j_sgn<T>(val);
         }
 
-#ifndef __CUDACC__
+//#ifndef __CUDACC__
 
         template<>
         math_def inline float16 nd4j_dot<float16>(float16 *x, float16 *y, int length) {
@@ -189,18 +242,24 @@ template<typename T>
 
 			return dot;
 		}
-#endif
+//#endif
 
 		template<typename T>
         math_def inline T nd4j_acos(T val);
 
 		template<typename T>
+		math_def inline T nd4j_acosh(T val);
+
+		template<typename T>
         math_def inline T nd4j_asin(T val);
+
+		template<typename T>
+		math_def inline T nd4j_asinh(T val);
 
         template<typename T>
         math_def inline T nd4j_asinh(T val) {
             //Math.log(Math.sqrt(Math.pow(x, 2) + 1) + x)
-            return nd4j_log(nd4j_sqrt(nd4j_pow(val,2) + 1) + val);
+            return nd4j_log(nd4j_sqrt(nd4j_pow(val, (T) 2) + (T) 1) + val);
         }
 
 		template<typename T>
@@ -235,6 +294,37 @@ template<typename T>
 			return value < 0 ? -value : value;
 		}
 
+		template<>
+		math_def inline Nd4jIndex nd4j_abs<Nd4jIndex>(Nd4jIndex value) {
+			return value < 0 ? -value : value;
+		}
+
+		template<>
+		math_def inline float16 nd4j_copysign<float16>(float16 val1, float16 val2) {
+			return (float16) copysignf((float) val1, (float) val2);
+		}
+
+		template<>
+		math_def inline float nd4j_copysign<float>(float val1, float val2) {
+			return copysignf(val1, val2);
+		}
+
+		template<>
+		math_def inline double nd4j_copysign<double>(double val1, double val2) {
+			return copysign(val1, val2);
+		}
+
+		template<>
+		math_def inline int nd4j_copysign<int>(int val1, int val2) {
+			if (val2 < 0) return -(nd4j_abs<int>(val1));
+			else return nd4j_abs<int>(val1);
+		}
+
+		template<>
+		math_def inline Nd4jIndex nd4j_copysign<Nd4jIndex>(Nd4jIndex val1, Nd4jIndex val2) {
+			if (val2 < 0) return -(nd4j_abs<Nd4jIndex>(val1));
+			else return nd4j_abs<Nd4jIndex>(val1);
+		}
 
 		template<>
         math_def inline float16 nd4j_max<float16>(float16 val1, float16 val2) {
@@ -257,6 +347,15 @@ template<typename T>
 			return val1 > val2 ? val1 : val2;
 		}
 
+		template<>
+		math_def inline Nd4jIndex nd4j_max<Nd4jIndex>(Nd4jIndex val1, Nd4jIndex val2) {
+			return val1 > val2 ? val1 : val2;
+		}
+
+		template<>
+		math_def inline Nd4jIndex nd4j_min<Nd4jIndex>(Nd4jIndex val1, Nd4jIndex val2) {
+			return val1 < val2 ? val1 : val2;
+		}
 
 		template<>
         math_def inline float16 nd4j_min<float16>(float16 val1, float16 val2) {
@@ -283,7 +382,7 @@ template<typename T>
 #ifdef NATIVE_HALFS
             return hceil(val.data)
 #else
-			return ceilf(val);
+			return ceilf((float) val);
 #endif
 		}
 
@@ -307,7 +406,7 @@ template<typename T>
 #ifdef NATIVE_HALFS
 			return hcos(val.data);
 #else
-			return cosf(val);
+			return cosf((float) val);
 #endif
 		}
 
@@ -325,6 +424,27 @@ template<typename T>
         math_def inline int nd4j_cos<int>(int val) {
 			return cosf((float) val);
 		}
+
+
+        template<>
+        math_def inline float16 nd4j_cosh<float16>(float16 val) {
+            return coshf((float) val);
+        }
+
+        template<>
+        math_def inline float nd4j_cosh<float>(float val) {
+            return coshf(val);
+        }
+
+        template<>
+        math_def inline double nd4j_cosh<double>(double val) {
+            return cosh(val);
+        }
+
+        template<>
+        math_def inline int nd4j_cosh<int>(int val) {
+            return coshf((float) val);
+        }
 
 
 		template<>
@@ -464,6 +584,21 @@ template<typename T>
         template<>
         math_def inline float16 nd4j_fmod<float16>(float16 num, float16 denom) {
             return (float16) fmodf((float) num, (float) denom);
+        }
+
+		template<>
+        math_def inline float nd4j_erf<float>(float num) {
+            return erff(num);
+        }
+
+        template<>
+        math_def inline double nd4j_erf<double>(double num) {
+            return erf(num);
+        }
+
+        template<>
+        math_def inline float16 nd4j_erf<float16>(float16 num) {
+            return (float16) erff((float) num);
         }
 
 
@@ -621,6 +756,28 @@ template<typename T>
 
 
 		template<>
+		math_def inline float16 nd4j_acosh<float16>(float16 val) {
+			return (float16) acoshf((float) val);
+		}
+
+
+		template<>
+		math_def inline float nd4j_acosh<float>(float val) {
+			return acoshf(val);
+		}
+
+		template<>
+		math_def inline double nd4j_acosh<double>(double val) {
+			return acos(val);
+		}
+
+		template<>
+		math_def inline int nd4j_acosh<int>(int val) {
+			return acoshf((float) val);
+		}
+
+
+		template<>
         math_def inline float16 nd4j_asin<float16>(float16 val) {
 			return (float16) asinf((float) val);
 		}
@@ -699,17 +856,17 @@ template<typename T>
 #ifdef __CUDACC__
 		namespace atomics {
 template <typename T>
-__device__ T nd4j_atomicAdd(T* address, T val);
+inline __device__ T nd4j_atomicAdd(T* address, T val);
 
 template <typename T>
-__device__ T nd4j_atomicSub(T* address, T val);
+inline __device__ T nd4j_atomicSub(T* address, T val);
 template <typename T>
-__device__ T nd4j_atomicMul(T* address, T val);
+inline __device__ T nd4j_atomicMul(T* address, T val);
 template <typename T>
-__device__ T nd4j_atomicDiv(T* address, T val);
+inline __device__ T nd4j_atomicDiv(T* address, T val);
 
 template <>
-__device__ double nd4j_atomicAdd<double>(double* address, double val)  {
+inline __device__ double nd4j_atomicAdd<double>(double* address, double val)  {
 	unsigned long long int* address_as_ull =
 			(unsigned long long int *) address;
 	unsigned long long int old = *address_as_ull, assumed;
@@ -722,7 +879,7 @@ __device__ double nd4j_atomicAdd<double>(double* address, double val)  {
 }
 
 template <>
-__device__ float16 nd4j_atomicAdd<float16>(float16* address, float16 val)  {
+inline __device__ float16 nd4j_atomicAdd<float16>(float16* address, float16 val)  {
 	int* address_as_ull = (int*) address;
 
 	long addr = (long) address;
@@ -755,7 +912,7 @@ __device__ float16 nd4j_atomicAdd<float16>(float16* address, float16 val)  {
 }
 
 template <>
-__device__ double nd4j_atomicSub<double>(double* address, double val)  {
+inline __device__ double nd4j_atomicSub<double>(double* address, double val)  {
 	unsigned long long int* address_as_ull =
 			(unsigned long long int *) address;
 	unsigned long long int old = *address_as_ull, assumed;
@@ -768,7 +925,7 @@ __device__ double nd4j_atomicSub<double>(double* address, double val)  {
 }
 
 template <>
-__device__ double nd4j_atomicMul<double>(double* address, double val)  {
+inline __device__ double nd4j_atomicMul<double>(double* address, double val)  {
 	unsigned long long int* address_as_ull =
 			(unsigned long long int*) address;
 	unsigned long long int old = *address_as_ull, assumed;
@@ -781,7 +938,7 @@ __device__ double nd4j_atomicMul<double>(double* address, double val)  {
 }
 
 template <>
-__device__ double nd4j_atomicDiv<double>(double* address, double val)  {
+inline __device__ double nd4j_atomicDiv<double>(double* address, double val)  {
 	unsigned long long int* address_as_ull =
 			(unsigned long long int*) address;
 	unsigned long long int old = *address_as_ull, assumed;
@@ -794,13 +951,13 @@ __device__ double nd4j_atomicDiv<double>(double* address, double val)  {
 }
 
 template <>
-__device__ float nd4j_atomicAdd<float>(float* address, float val)  {
+inline __device__ float nd4j_atomicAdd<float>(float* address, float val)  {
 	return atomicAdd(address,val);
 }
 
 
 template <>
-__device__ float nd4j_atomicSub<float>(float* address, float val) {
+inline __device__ float nd4j_atomicSub<float>(float* address, float val) {
 	int* address_as_ull = (int*) address;
 	int old = *address_as_ull, assumed;
 	do {
@@ -812,7 +969,7 @@ __device__ float nd4j_atomicSub<float>(float* address, float val) {
 }
 
 template <>
-__device__ float nd4j_atomicMul<float>(float* address, float val) {
+inline __device__ float nd4j_atomicMul<float>(float* address, float val) {
 	int* address_as_ull =
 			( int*)address;
 	int old = *address_as_ull, assumed;
@@ -826,7 +983,7 @@ __device__ float nd4j_atomicMul<float>(float* address, float val) {
 
 
 template <>
-__device__ float nd4j_atomicDiv<float>(float* address, float val) {
+inline __device__ float nd4j_atomicDiv<float>(float* address, float val) {
 	int* address_as_ull =
 			(int*)address;
 	int old = *address_as_ull, assumed;

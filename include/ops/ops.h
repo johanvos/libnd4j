@@ -4,23 +4,28 @@
 
 #include <helpers/shape.h>
 #include <vector>
+#include <Environment.h>
 
 #define MIN 1e-12
 #define MAX_FLOAT 1e37
 #define MIN_FLOAT 1e-37
+#define MAX_INT 2147483647
 #define MIN_CUTFOFF -3.79297773665f
 #define FLOAT_MIN_NORMAL 1.17549435e-38
 #define FLOAT_MAX_VALUE 3.4028235E38
 #define EPS 1e-5
-#define ELEMENT_THRESHOLD element_threshold
-#define TAD_THRESHOLD tad_threshold
 #define AFFINITY close
+#ifndef M_E
+#define M_E 2.718281828459
+#endif
 
-#define no_op_exec_special 	static const bool requiresSpecial = false; static void execSpecial(T *dx, int *xShapeBuffer, T *result, int *resultShapeBuffer, T *extraParams, int *tadShapeInfo, int *tadOffsets) {}
+#define no_op_exec_special 	static const bool requiresSpecial = false; static void execSpecial(T *dx, int *xShapeBuffer, T *result, int *resultShapeBuffer, T *extraParams, int *tadShapeInfo, Nd4jIndex *tadOffsets) {}
+#define no_op_exec_special_accumulation 	static const bool requiresSpecialAccumulation = false; static void execSpecial(T *x, int *xShapeInfo, T *extraParams, T *result, int *resultShapeInfoBuffer, int *dimension, int dimensionLength, int *tadShapeInfo, Nd4jIndex *tadOffset){}
 #ifdef __CUDACC__
 #define meta_def __noinline__ __device__
 #include <helpers/sharedmem.h>
-#define no_op_exec_special_cuda static __device__ void execSpecialCuda(T *dx,int *xShapeBuffer,T *result,int *resultShapeBuffer,T *extraParams, int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager) {}
+#define no_op_exec_special_cuda static __device__ void execSpecialCuda(T *dx,int *xShapeBuffer,T *result,int *resultShapeBuffer,T *extraParams, int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager, int *tadShapeInfo, Nd4jIndex *tadOffsets) {}
+#define no_op_exec_special_accumulation_cuda 	static inline __device__ void execSpecialCuda(T *dx, int *xShapeInfo, T *extraParams, T *result, int *resultShapeInfo, int *dimension, int dimensionLength, T *reductionBuffer, UnifiedSharedMemory *manager, int *tadOnlyShapeInfo, Nd4jIndex *tadOffsets) {}
 #else
 // hacky fix for isnan/being being out of scope
 #define isnan std::isnan
@@ -28,10 +33,12 @@
 
 #define meta_def inline
 #define no_op_exec_special_cuda
+#define no_op_exec_special_accumulation_cuda
 #endif
 
 #ifdef __CUDACC__
-#define op_def inline __device__
+#define op_def inline __device__ __host__
+#define op_def_special inline __device__
 
 // 610 is for tests only
 // 600 is Tesla P100
@@ -42,13 +49,31 @@
 
 #elif _MSC_VER
 #define op_def __pragma("omp declare simd") inline
+#define op_def_special __pragma("omp declare simd") inline
 #elif __clang__
 #define op_def inline
+#define op_def_special inline
 #elif __GNUC__
-#define op_def _Pragma("omp declare simd") inline
+#define op_def _Pragma("omp declare simd") inline __attribute__((always_inline))
+#define op_def_special _Pragma("omp declare simd") inline __attribute__((always_inline))
 #endif
 
+#define SELU_ALPHA 1.6732632423543772848170429916717
+#define SELU_LAMBDA 1.0507009873554804934193349852946
 
+#ifdef _OPENMP
+#pragma omp declare reduction(maxT : float,double,float16 :              \
+                omp_out = nd4j::math::nd4j_max(omp_in, omp_out) )\
+                initializer (omp_priv=-MAX_FLOAT)
+
+#pragma omp declare reduction(minT : float,double,float16 :              \
+                omp_out = nd4j::math::nd4j_min(omp_in, omp_out) )\
+                initializer (omp_priv=MAX_FLOAT)
+
+#pragma omp declare reduction(sumT : float,double,float16 :              \
+                omp_out = omp_in + omp_out)\
+                initializer (omp_priv=0.0f)
+#endif
 
 
 namespace functions {
@@ -56,7 +81,7 @@ namespace functions {
 		template<typename T>
 		struct IndexValue {
 			T value;
-            int index;
+            Nd4jIndex index;
 		};
 	}
 
@@ -106,6 +131,27 @@ namespace simdOps {
 		// op for MetaOps
 		op_def static T op(T d1, T *params) {
 			return d1 - params[0];
+		}
+	};
+
+	template<typename T>
+	class SquaredSubtract {
+	public:
+		op_def static T op(T d1, T d2) {
+			return nd4j::math::nd4j_pow<T>(d1 - d2, (T) 2);
+		}
+
+		op_def static T op(T d1, T d2, T *params) {
+			return nd4j::math::nd4j_pow<T>(d1 - d2, (T) 2);
+		}
+
+		op_def static T op(T d1) {
+			return d1;
+		}
+
+		// op for MetaOps
+		op_def static T op(T d1, T *params) {
+			return nd4j::math::nd4j_pow<T>(d1 - params[0], (T) 2);
 		}
 	};
 
@@ -173,6 +219,54 @@ namespace simdOps {
 	};
 
     template<typename T>
+    class FloorDiv {
+    public:
+        op_def static T op(T d1, T d2) {
+            return nd4j::math::nd4j_floor<T>(d1 / d2);
+        }
+
+        op_def static T op(T d1, T d2, T *params) {
+            return nd4j::math::nd4j_floor<T>(d1 / d2);
+        }
+
+        op_def static T op(T d1) {
+            return nd4j::math::nd4j_floor<T>(d1);
+        }
+
+        // op for MetaOps
+        op_def static T op(T d1, T *params) {
+            return nd4j::math::nd4j_floor<T>(d1 / params[0]);
+        }
+    };
+
+    template<typename T>
+    class TruncateDiv {
+    public:
+        op_def static T op(T d1, T d2) {
+            int i1 = (int) d1;
+            int i2 = (int) d2;
+            return (T)(i1 / i2);
+        }
+
+        op_def static T op(T d1, T d2, T *params) {
+            int i1 = (int) d1;
+            int i2 = (int) d2;
+            return (T)(i1 / i2);
+        }
+
+        op_def static T op(T d1) {
+            return d1;
+        }
+
+        // op for MetaOps
+        op_def static T op(T d1, T *params) {
+            int i1 = (int) d1;
+            int i2 = (int) params[0];
+            return (T)(i1 / i2);
+        }
+    };
+
+    template<typename T>
     class Remainder {
     public:
         op_def static T op(T d1, T d2) {
@@ -215,6 +309,30 @@ namespace simdOps {
     };
 
 	template<typename T>
+    class FloorMod {
+    public:
+        op_def static T op(T d1, T d2) {
+			T m = nd4j::math::nd4j_fmod(d1, d2);;
+            return (d1 < (T) 0.0f) == (d2 < (T) 0.0f) ? m : nd4j::math::nd4j_fmod(m + d2, d2);
+        }
+
+        op_def static T op(T d1, T d2, T *params) {
+            T m = nd4j::math::nd4j_fmod(d1, d2);
+			return (d1 < (T) 0.0f) == (d2 < (T) 0.0f) ? m : nd4j::math::nd4j_fmod(m + d2, d2);
+        }
+
+        op_def static T op(T d1) {
+            return d1;
+        }
+
+        // op for MetaOps 
+        op_def static T op(T d1, T *params) {
+			T m = nd4j::math::nd4j_fmod(d1, params[0]);
+            return (d1 < (T) 0.0f) == (params[0] < (T) 0.0f) ? m : nd4j::math::nd4j_fmod(m + params[0], params[0]);
+        }
+    };
+
+	template<typename T>
 	class ReverseDivide {
 	public:
 		op_def static T op(T d1, T d2) {
@@ -237,6 +355,27 @@ namespace simdOps {
 
 	template<typename T>
 	class Copy {
+	public:
+		op_def static T op(T d1, T d2) {
+			return d2;
+		}
+
+		op_def static T op(T d1, T d2, T *params) {
+			return d2;
+		}
+
+		op_def static T op(T d1) {
+			return d1;
+		}
+
+		// op for MetaOps
+		op_def static T op(T d1, T *params) {
+			return params[0];
+		}
+	};
+
+	template<typename T>
+	class Copy2 {
 	public:
 		op_def static T op(T d1, T d2) {
 			return d2;
@@ -377,6 +516,10 @@ namespace simdOps {
 	template<typename T>
 	class ReverseMod {
 	public:
+        op_def static T op(T d1, T d2) {
+            return (int)d2 % (int)d1;
+        }
+
 		op_def static T op(T d1, T d2, T *params) {
 			return (int)d2 % (int)d1;
 		}
@@ -411,6 +554,10 @@ namespace simdOps {
 	template<typename T>
 	class EqualTo {
 	public:
+		op_def static T op(T d1, T d2) {
+			return d1 == d2;
+		}
+
 		op_def static T op(T d1, T d2, T *params) {
 			return d1 == d2;
 		}
@@ -425,6 +572,10 @@ namespace simdOps {
 	template<typename T>
 	class NotEqualTo {
 	public:
+		op_def static T op(T d1, T d2) {
+			return d1 != d2;
+		}
+
 		op_def static T op(T d1, T d2, T *params) {
 			return d1 != d2;
 		}
@@ -439,6 +590,10 @@ namespace simdOps {
 	template<typename T>
 	class GreaterThanOrEqual {
 	public:
+		op_def static T op(T d1, T d2) {
+			return d1 >= d2;
+		}
+
 		op_def static T op(T d1, T d2, T *params) {
 			return d1 >= d2;
 		}
@@ -453,6 +608,10 @@ namespace simdOps {
 	template<typename T>
 	class GreaterThan {
 	public:
+		op_def static T op(T d1, T d2) {
+			return d1 > d2;
+		}
+
 		op_def static T op(T d1, T d2, T *params) {
 			return d1 > d2;
 		}
@@ -468,6 +627,10 @@ namespace simdOps {
 	template<typename T>
 	class LessThan {
 	public:
+		op_def static T op(T d1, T d2) {
+			return d1 < d2;
+		}
+
 		op_def static T op(T d1, T d2, T *params) {
 			return d1 < d2;
 		}
@@ -482,6 +645,10 @@ namespace simdOps {
 	template<typename T>
 	class LessThanOrEqual {
 	public:
+		op_def static T op(T d1, T d2) {
+			return d1 <= d2;
+		}
+
 		op_def static T op(T d1, T d2, T *params) {
 			return d1 <= d2;
 		}
@@ -592,6 +759,17 @@ namespace simdOps {
 	};
 
 	template<typename T>
+	class Log1p {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return nd4j::math::nd4j_log<T>(1+d1);
+		}
+	};
+
+	template<typename T>
 	class LogX {
 	public:
 		no_op_exec_special
@@ -637,6 +815,17 @@ namespace simdOps {
 		}
 	};
 
+	template<typename T>
+	class Erf {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return nd4j::math::nd4j_erf<T>(d1);
+		}
+	};
+
 
 	template<typename T>
 	class Pow {
@@ -646,6 +835,18 @@ namespace simdOps {
 
 		op_def static T op(T d1, T *params) {
 			return nd4j::math::nd4j_pow<T>(d1, params[0]);
+		}
+
+		op_def static T op(T d1, T d2) {
+			return nd4j::math::nd4j_pow<T>(d1, d2);
+		}
+
+		op_def static T op(T d1, T d2, T *params) {
+			return nd4j::math::nd4j_pow<T>(d1, d2);
+		}
+
+		op_def static T op(T d1) {
+			return d1;
 		}
 	};
 
@@ -661,6 +862,55 @@ namespace simdOps {
 		}
 	};
 
+	template<typename T>
+	class IsNan {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return isnan(d1) ? (T) 1.0f : (T) 0.0f;
+		}
+	};
+
+	template<typename T>
+	class IsInf {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return isinf(d1) ? (T) 1.0f : (T) 0.0f;
+		}
+	};
+
+	template<typename T>
+	class IsFinite {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return (!isinf(d1) && ! isnan(d1))? (T) 1.0f : (T) 0.0f;
+		}
+	};
+
+
+	template<typename T>
+	class ClipByValue {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			if (d1 > params[1])
+				return params[1];
+			else if (d1 < params[0])
+				return params[0];
+			else return d1;
+		}
+	};
+
 	
 	template<typename T>
 	class Sigmoid {
@@ -670,6 +920,30 @@ namespace simdOps {
 
 		op_def static T op(T d1, T *params) {
 			return nd4j::math::nd4j_sigmoid<T>(d1);
+		}
+	};
+
+	template<typename T>
+	class Swish {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return d1 * nd4j::math::nd4j_sigmoid<T>(d1);
+		}
+	};
+
+
+	template<typename T>
+	class SwishDerivative {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			T ex = nd4j::math::nd4j_pow<T>(M_E, d1);
+			return (ex * (d1 + ex + 1)) / nd4j::math::nd4j_pow<T>((ex + 1) , (T)2.0f);
 		}
 	};
 
@@ -744,16 +1018,6 @@ namespace simdOps {
 		}
 	};
 
-	template<typename T>
-	class Sinh {
-	public:
-		no_op_exec_special
-		no_op_exec_special_cuda
-
-		op_def static T op(T d1, T *params) {
-			return nd4j::math::nd4j_sinh<T>(d1);
-		}
-	};
 
 	template<typename T>
 	class Sqrt {
@@ -763,6 +1027,17 @@ namespace simdOps {
 
 		op_def static T op(T d1, T *params) {
 			return nd4j::math::nd4j_sqrt<T>(d1);
+		}
+	};
+
+	template<typename T>
+	class RSqrt {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return (T) 1.0f / nd4j::math::nd4j_sqrt<T>(d1);
 		}
 	};
 
@@ -880,19 +1155,6 @@ namespace simdOps {
 	};
 
 	template<typename T>
-	class Tan {
-	public:
-		no_op_exec_special
-		no_op_exec_special_cuda
-
-		op_def static T op(T d1, T *params) {
-			return nd4j::math::nd4j_tan<T>(d1);
-		}
-	};
-
-
-
-	template<typename T>
 	class TanhDerivative {
 	public:
 		no_op_exec_special
@@ -937,6 +1199,52 @@ namespace simdOps {
 		}
 	};
 
+	template<typename T>
+	class ASinh {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return nd4j::math::nd4j_asinh<T>(d1);
+		}
+	};
+
+	template<typename T>
+	class ASinhDerivative {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return (T) 1.f / (nd4j::math::nd4j_sqrt(nd4j::math::nd4j_pow(d1, (T) 2) + (T) 1));
+		}
+	};
+
+	template<typename T>
+	class ACosh {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return nd4j::math::nd4j_acosh<T>(d1);
+		}
+	};
+
+
+	template<typename T>
+	class ACoshDerivative {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return (T) 1.f / (nd4j::math::nd4j_sqrt(d1 - (T) 1.f) * nd4j::math::nd4j_sqrt(d1 + (T) 1.f));
+		}
+	};
+
+
 
 	template<typename T>
 	class Ones {
@@ -945,7 +1253,7 @@ namespace simdOps {
 		no_op_exec_special_cuda
 
 		op_def static T op(T d1, T *params) {
-			return 1;
+			return (T) 1.0f;
 		}
 	};
 
@@ -977,6 +1285,11 @@ namespace simdOps {
     template<typename T>
     class MatchCondition {
     public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
 
         op_def static T startingValue(const T *input) {
             return (T) 0.0;
@@ -1024,6 +1337,10 @@ namespace simdOps {
                 return (d1 == compare) ? 1.0 : 0.0;
             else if (mode == 11)
                 return (d1 != compare) ? 1.0 : 0.0;
+			else if (mode == 12) // abs_greater_or_equals_than
+				return nd4j::math::nd4j_abs<T>(d1) >= compare? 1.0 : 0.0;
+			else if (mode == 13) // abs_less_or_equals_than
+				return nd4j::math::nd4j_abs<T>(d1) <= compare? 1.0 : 0.0;
             else
                 printf("Undefined match condition: [%i]\n", mode);
 
@@ -1082,6 +1399,28 @@ namespace simdOps {
 		}
 	};
 
+    template<typename T>
+    class SELU {
+    public:
+        no_op_exec_special
+        no_op_exec_special_cuda
+
+        op_def static T op(T d1, T *params) {
+            return d1 > (T) 0.0f ? (T) SELU_LAMBDA * d1 : (T) SELU_LAMBDA * ((T) SELU_ALPHA * nd4j::math::nd4j_exp<T>(d1) - (T) SELU_ALPHA);
+        }
+    };
+
+    template<typename T>
+    class SELUDerivative {
+    public:
+        no_op_exec_special
+        no_op_exec_special_cuda
+
+        op_def static T op(T d1, T *params) {
+            return d1 > (T) 0.0f ? (T) SELU_LAMBDA : (T) SELU_ALPHA * (T) SELU_LAMBDA * nd4j::math::nd4j_exp<T>(d1);
+        }
+    };
+
 	template<typename T>
 	class LeakyRELUDerivative {
 	public:
@@ -1107,17 +1446,61 @@ namespace simdOps {
 		}
 	};
 
+	template<typename T>
+	class Sinh {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return nd4j::math::nd4j_sinh<T>(d1);
+		}
+	};
+
+	template<typename T>
+	class SinhDerivative {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return nd4j::math::nd4j_cosh<T>(d1);
+		}
+	};
+
+	template<typename T>
+	class Cosh {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return nd4j::math::nd4j_cosh<T>(d1);
+		}
+	};
+
+
+	template<typename T>
+	class Tan {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return nd4j::math::nd4j_tan<T>(d1);
+		}
+	};
+
     template<typename T>
-    class ASinh {
+    class TanDerivative {
     public:
         no_op_exec_special
         no_op_exec_special_cuda
 
         op_def static T op(T d1, T *params) {
-            return nd4j::math::nd4j_asinh<T>(d1);
+            return  (T) 1.0f / (T) nd4j::math::nd4j_pow<T>(nd4j::math::nd4j_cos<T>(d1), (T) 2.0f);
         }
     };
-
 
 	template<typename T>
 	class ATan {
@@ -1129,6 +1512,17 @@ namespace simdOps {
 			return nd4j::math::nd4j_atan(d1);
 		}
 	};
+
+    template<typename T>
+    class Atan2 {
+    public:
+        no_op_exec_special
+        no_op_exec_special_cuda
+
+        op_def static T op(T d1, T d2, T *params) {
+            return nd4j::math::nd4j_atan2<T>(d2, d1);
+        }
+    };
 
 
 	template<typename T>
@@ -1192,6 +1586,9 @@ namespace simdOps {
 	template<typename T>
 	class Sum {
 	public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
 		op_def static T startingValue(const T *input) {
 			return (T) 0.0f;
 		}
@@ -1213,9 +1610,98 @@ namespace simdOps {
 		}
 	};
 
+
+
+
+    template<typename T>
+    class ShannonEntropy {
+    public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
+        op_def static T startingValue(const T *input) {
+            return (T) 0.0f;
+        }
+
+        op_def static T merge(T old, T opOutput, T *extraParams) {
+            return opOutput + old;
+        }
+
+        op_def static T update(T old, T opOutput, T *extraParams) {
+            return opOutput + old;
+        }
+
+        op_def static T op(T d1, T *extraParams) {
+            return nd4j::math::nd4j_pow<T>(d1, (T) 2.0f) * nd4j::math::nd4j_log<T>(nd4j::math::nd4j_pow<T>(d1, (T) 2.0f));
+        }
+
+        op_def static T postProcess(T reduction, Nd4jIndex n, T *extraParams) {
+            return -reduction;
+        }
+    };
+
+
+    template<typename T>
+    class LogEntropy {
+    public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
+        op_def static T startingValue(const T *input) {
+            return (T) 0.0f;
+        }
+
+        op_def static T merge(T old, T opOutput, T *extraParams) {
+            return opOutput + old;
+        }
+
+        op_def static T update(T old, T opOutput, T *extraParams) {
+            return opOutput + old;
+        }
+
+        op_def static T op(T d1, T *extraParams) {
+            return nd4j::math::nd4j_log<T>(nd4j::math::nd4j_pow<T>(d1, (T) 2.0f));
+        }
+
+        op_def static T postProcess(T reduction, Nd4jIndex n, T *extraParams) {
+            return reduction;
+        }
+    };
+
+    template<typename T>
+    class Entropy {
+    public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
+        op_def static T startingValue(const T *input) {
+            return (T) 0.0f;
+        }
+
+        op_def static T merge(T old, T opOutput, T *extraParams) {
+            return opOutput + old;
+        }
+
+        op_def static T update(T old, T opOutput, T *extraParams) {
+            return opOutput + old;
+        }
+
+        op_def static T op(T d1, T *extraParams) {
+            return d1 * nd4j::math::nd4j_log<T>(d1);
+        }
+
+        op_def static T postProcess(T reduction, Nd4jIndex n, T *extraParams) {
+            return reduction;
+        }
+    };
+
+
     template<typename T>
     class ASum {
     public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
         op_def static T startingValue(const T *input) {
             return (T) 0.0f;
         }
@@ -1239,8 +1725,39 @@ namespace simdOps {
 
 
 	template<typename T>
+    class CountNonZero {
+    public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
+        op_def static T startingValue(const T *input) {
+            return (T) 0.0f;
+        }
+
+        op_def static T merge(T old, T opOutput, T *extraParams) {
+            return opOutput + old;
+        }
+
+        op_def static T update(T old, T opOutput, T *extraParams) {
+            return opOutput + old;
+        }
+
+        op_def static T op(T d1, T *extraParams) {
+            return d1 == (T) 0.0f ? (T) 0.0f : (T) 1.0f;
+        }
+
+        op_def static T postProcess(T reduction, Nd4jIndex n, T *extraParams) {
+            return reduction;
+        }
+    };
+
+
+	template<typename T>
 	class Prod {
 	public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
 		op_def static T startingValue(const T *input) {
 			return (T) 1.0f;
 		}
@@ -1262,9 +1779,68 @@ namespace simdOps {
 		}
 	};
 
+
+	template<typename T>
+	class Any {
+	public:
+		no_op_exec_special_accumulation
+		no_op_exec_special_accumulation_cuda
+
+		op_def static T startingValue(const T *input) {
+			return (T) 0.0f;
+		}
+
+		op_def static T merge(T old, T opOutput, T *extraParams) {
+			return opOutput + old;
+		}
+
+		op_def static T update(T old, T opOutput, T *extraParams) {
+			return opOutput + old;
+		}
+
+		op_def static T op(T d1, T *extraParams) {
+			return d1;
+		}
+
+		op_def static T postProcess(T reduction, Nd4jIndex n, T *extraParams) {
+			return reduction > (T) 0.0f ? (T) 1.0f : (T) 0.0f ;
+		}
+	};
+
+
+    template<typename T>
+    class All {
+    public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
+        op_def static T startingValue(const T *input) {
+            return (T) 1.0f;
+        }
+
+        op_def static T merge(T old, T opOutput, T *extraParams) {
+            return opOutput * old;
+        }
+
+        op_def static T update(T old, T opOutput, T *extraParams) {
+            return opOutput * old;
+        }
+
+        op_def static T op(T d1, T *extraParams) {
+            return d1;
+        }
+
+        op_def static T postProcess(T reduction, Nd4jIndex n, T *extraParams) {
+            return reduction > (T) 0.0f ? (T) 1.0f : (T) 0.0f ;
+        }
+    };
+
 	template<typename T>
 	class Mean {
 	public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
 		op_def static T startingValue(const T *input) {
 			return (T) 0.0f;
 		}
@@ -1287,9 +1863,39 @@ namespace simdOps {
 	};
 
 
+    template<typename T>
+    class AMean {
+    public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
+        op_def static T startingValue(const T *input) {
+            return (T) 0.0f;
+        }
+
+        op_def static T merge(T old, T opOutput, T *extraParams) {
+            return nd4j::math::nd4j_abs<T>(opOutput) + nd4j::math::nd4j_abs<T>(old);
+        }
+
+        op_def static T update(T old, T opOutput, T *extraParams) {
+            return nd4j::math::nd4j_abs<T>(opOutput) + nd4j::math::nd4j_abs<T>(old);
+        }
+
+        op_def static T op(T d1, T *extraParams) {
+            return nd4j::math::nd4j_abs<T>(d1);
+        }
+
+        op_def static T postProcess(T reduction, Nd4jIndex n, T *extraParams) {
+            return nd4j::math::nd4j_abs<T>(reduction) / (int) n;
+        }
+    };
+
 	template<typename T>
 	class Max {
 	public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
 		op_def static T startingValue(const T *input) {
 			return input[0];
 		}
@@ -1306,6 +1912,10 @@ namespace simdOps {
 			return nd4j::math::nd4j_max<T>(d1, d2);
 		}
 
+        op_def static T op(T d1, T d2) {
+            return nd4j::math::nd4j_max<T>(d1, d2);
+        }
+
 		// FIXME: this signature overlaps with MetaOp
 		op_def static T op(T d1, T *extraParams) {
 			return d1;
@@ -1317,39 +1927,122 @@ namespace simdOps {
 	};
 
 
+    template<typename T>
+    class AMax {
+    public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
+        op_def static T startingValue(const T *input) {
+            return input[0];
+        }
+
+        op_def static T merge(T old, T opOutput, T *extraParams) {
+            return nd4j::math::nd4j_max<T>(nd4j::math::nd4j_abs<T>(old), nd4j::math::nd4j_abs<T>(opOutput));
+        }
+
+        op_def static T update(T old, T opOutput, T *extraParams) {
+            return nd4j::math::nd4j_max<T>(nd4j::math::nd4j_abs<T>(opOutput), nd4j::math::nd4j_abs<T>(old));
+        }
+
+        op_def static T op(T d1, T d2, T *params) {
+            return nd4j::math::nd4j_max<T>(nd4j::math::nd4j_abs<T>(d1), nd4j::math::nd4j_abs<T>(d2));
+        }
+
+        op_def static T op(T d1, T d2) {
+            return nd4j::math::nd4j_abs<T>(d1) > nd4j::math::nd4j_abs<T>(d2) ? d1 : d2;
+        }
+
+        // FIXME: this signature overlaps with MetaOp
+        op_def static T op(T d1, T *extraParams) {
+            return nd4j::math::nd4j_abs<T>(d1);
+        }
+
+        op_def static T postProcess(T reduction, Nd4jIndex n, T *extraParams) {
+            return nd4j::math::nd4j_abs<T>(reduction);
+        }
+    };
+
+
 	template<typename T>
-	class Min {
+	class AMin {
 	public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
 		op_def static T startingValue(const T *input) {
 			return input[0];
 		}
 
 		op_def static T merge(T old, T opOutput, T *extraParams) {
-			return nd4j::math::nd4j_min<T>(old, opOutput);
+			return nd4j::math::nd4j_min<T>(nd4j::math::nd4j_abs<T>(old), nd4j::math::nd4j_abs<T>(opOutput));
 		}
 
 		op_def static T update(T old, T opOutput, T *extraParams) {
-			return nd4j::math::nd4j_min<T>(opOutput, old);
+			return nd4j::math::nd4j_min<T>(nd4j::math::nd4j_abs<T>(opOutput), nd4j::math::nd4j_abs<T>(old));
 		}
 
 		op_def static T op(T d1, T d2, T *params) {
-			return nd4j::math::nd4j_min(d1, d2);
+			return nd4j::math::nd4j_min(nd4j::math::nd4j_abs<T>(d1), nd4j::math::nd4j_abs<T>(d2));
 		}
+
+        op_def static T op(T d1, T d2) {
+            return nd4j::math::nd4j_abs<T>(d1) < nd4j::math::nd4j_abs<T>(d2) ? d1 : d2;
+        }
 
 		// FIXME: this signature overlaps with MetaOp
 		op_def static T op(T d1, T *extraParams) {
-			return d1;
+			return nd4j::math::nd4j_abs<T>(d1);
 		}
 
 		op_def static T postProcess(T reduction, Nd4jIndex n, T *extraParams) {
-			return reduction;
+			return nd4j::math::nd4j_abs<T>(reduction);
 		}
 	};
 
+    template<typename T>
+    class Min {
+    public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
 
-	template<typename T>
+        op_def static T startingValue(const T *input) {
+            return input[0];
+        }
+
+        op_def static T merge(T old, T opOutput, T *extraParams) {
+            return nd4j::math::nd4j_min<T>(old, opOutput);
+        }
+
+        op_def static T update(T old, T opOutput, T *extraParams) {
+            return nd4j::math::nd4j_min<T>(opOutput, old);
+        }
+
+        op_def static T op(T d1, T d2, T *params) {
+            return nd4j::math::nd4j_min(d1, d2);
+        }
+
+        op_def static T op(T d1, T d2) {
+            return nd4j::math::nd4j_min(d1, d2);
+        }
+
+        // FIXME: this signature overlaps with MetaOp
+        op_def static T op(T d1, T *extraParams) {
+            return d1;
+        }
+
+        op_def static T postProcess(T reduction, Nd4jIndex n, T *extraParams) {
+            return reduction;
+        }
+    };
+
+
+    template<typename T>
 	class Norm1 {
 	public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
 		op_def static T startingValue(const T *input) {
 			return (T) 0.0f;
 		}
@@ -1377,6 +2070,9 @@ namespace simdOps {
 	template<typename T>
 	class Norm2 {
 	public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
 		op_def static T startingValue(const T *input) {
 			return (T) 0.0f;
 		}
@@ -1403,6 +2099,9 @@ namespace simdOps {
 	template<typename T>
 	class NormMax {
 	public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
 		op_def static T startingValue(const T *input) {
 			return (T) 0.0f;
 		}
@@ -1430,6 +2129,9 @@ namespace simdOps {
 	template<typename T>
 	class Variance {
 	public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
 		op_def static T startingValue(const T *input) {
 			return (T) 0.0f;
 		}
@@ -1462,6 +2164,9 @@ namespace simdOps {
 	template<typename T>
 	class StandardDeviation {
 	public:
+        no_op_exec_special_accumulation
+        no_op_exec_special_accumulation_cuda
+
 		op_def static T startingValue(const T *input) {
 			return (T) 0.0f;
 		}
@@ -1540,6 +2245,170 @@ namespace simdOps {
 			return update(old, opOutput, extraParams);
 		}
 	};
+
+
+    template<typename T>
+    class JaccardDistance {
+    public:
+        static const int extraParamsLen = 2;
+
+        op_def static T *generateExtraParams() {
+            //T *extraParams = new T[2];
+            return nullptr;
+        }
+
+        op_def static void finalizeExtraParams(T *extraParams) {
+            //delete[] extraParams;
+        }
+
+        op_def static T startingValue(T *input) {
+            return (T) 0.0f;
+        }
+
+        op_def static  T postProcess(T reduction, Nd4jIndex n, T *extraParams) {
+            // num / denom
+            return ((T) 1.0f) - (extraParams[0] / extraParams[1]);
+        }
+
+        op_def static T num(T d1, T d2) {
+            return nd4j::math::nd4j_min<T>(d1, d2);
+        }
+
+        op_def static T denom(T d1, T d2) {
+            return nd4j::math::nd4j_max<T>(d1, d2);
+        }
+
+        op_def static T op(T d1, T d2, T *extraParams) {
+            extraParams[0] += num(d1, d2);
+            extraParams[1] += denom(d1, d2);
+            return (T) 0.0f;
+        }
+
+        op_def static void aggregateExtraParams(T *extraParamsTotal, T *extraParamsLocal) {
+            extraParamsTotal[0] += extraParamsLocal[0];
+            extraParamsTotal[1] += extraParamsLocal[1];
+        }
+
+#ifdef __CUDACC__
+        __device__
+		static inline T opAtomic(T d1, T d2, T *extraParams) {
+			nd4j::math::atomics::nd4j_atomicAdd(&extraParams[0],(T) num(d1, d2));
+			nd4j::math::atomics::nd4j_atomicAdd(&extraParams[1],(T) denom(d1, d2));
+
+			return (T) 0.0f;
+		}
+#endif
+
+        op_def static  T update(T old, T opOutput, T *extraParams) {
+            return old + opOutput;
+        }
+
+
+        op_def static T merge(T old, T opOutput, T *extraParams) {
+            return update(old, opOutput, extraParams);
+        }
+    };
+
+
+    template<typename T>
+    class SimpleHammingDistance {
+    public:
+        static const int extraParamsLen = 0;
+
+        op_def static T *generateExtraParams() {
+            //T *extraParams = new T[2];
+            return nullptr;
+        }
+
+        op_def static void finalizeExtraParams(T *extraParams) {
+            //delete[] extraParams;
+        }
+
+        op_def static T startingValue(T *input) {
+            return (T) 0.0f;
+        }
+
+        op_def static  T postProcess(T reduction, Nd4jIndex n, T *extraParams) {
+            return (T) (reduction / (T) n);
+        }
+
+        op_def static T op(T d1, T d2, T *extraParams) {
+            return (d1 == d2) ? (T) 0.0f :  (T)1.0f;
+        }
+
+        op_def static void aggregateExtraParams(T *extraParamsTotal, T *extraParamsLocal) {
+
+        }
+
+#ifdef __CUDACC__
+        __device__
+		static inline T opAtomic(T d1, T d2, T *extraParams) {
+			return op(d1, d2, extraParams);
+		}
+#endif
+
+        op_def static  T update(T old, T opOutput, T *extraParams) {
+            return old + opOutput;
+        }
+
+
+        op_def static T merge(T old, T opOutput, T *extraParams) {
+            return update(old, opOutput, extraParams);
+        }
+    };
+
+    template<typename T>
+    class CosineDistance {
+    public:
+        static const int extraParamsLen = 2;
+
+        op_def static T *generateExtraParams() {
+            //T *extraParams = new T[2];
+            return nullptr;
+        }
+
+        op_def static void finalizeExtraParams(T *extraParams) {
+            //delete[] extraParams;
+        }
+
+        op_def static T startingValue(T *input) {
+            return (T) 0.0f;
+        }
+
+        op_def static  T postProcess(T reduction, Nd4jIndex n, T *extraParams) {
+            return ((T) 1.0f) - (reduction / (nd4j::math::nd4j_sqrt<T>(extraParams[0]) * nd4j::math::nd4j_sqrt<T>(extraParams[1])));
+        }
+
+        op_def static T op(T d1, T d2, T *extraParams) {
+            extraParams[0] += nd4j::math::nd4j_abs<T>(d1) * nd4j::math::nd4j_abs<T>(d1);
+            extraParams[1] += nd4j::math::nd4j_abs<T>(d2) * nd4j::math::nd4j_abs<T>(d2);
+            return (d1 * d2);
+        }
+
+        op_def static void aggregateExtraParams(T *extraParamsTotal, T *extraParamsLocal) {
+            extraParamsTotal[0] += extraParamsLocal[0];
+            extraParamsTotal[1] += extraParamsLocal[1];
+        }
+
+#ifdef __CUDACC__
+        __device__
+		static inline T opAtomic(T d1, T d2, T *extraParams) {
+			nd4j::math::atomics::nd4j_atomicAdd(&extraParams[0],(T) nd4j::math::nd4j_abs<T>(d1) * nd4j::math::nd4j_abs<T>(d1));
+			nd4j::math::atomics::nd4j_atomicAdd(&extraParams[1],(T) nd4j::math::nd4j_abs<T>(d2) * nd4j::math::nd4j_abs<T>(d2));
+
+			return (d1 * d2);
+		}
+#endif
+
+        op_def static  T update(T old, T opOutput, T *extraParams) {
+            return old + opOutput;
+        }
+
+
+        op_def static T merge(T old, T opOutput, T *extraParams) {
+            return update(old, opOutput, extraParams);
+        }
+    };
 
 
 	/**
@@ -2014,8 +2883,9 @@ namespace simdOps {
         static functions::indexreduce::IndexValue<T> update(
 				functions::indexreduce::IndexValue<T> old,
 				functions::indexreduce::IndexValue<T> opOutput, T *extraParams) {
-			if (opOutput.value > old.value)
-				return opOutput;
+			if (opOutput.value > old.value) {
+                return opOutput;
+            }
 #ifdef __CUDACC__
 			// workaround for cuda race condition at merge phase
 			else if (opOutput.value == old.value && opOutput.index < old.index)
@@ -2285,7 +3155,10 @@ template<typename T>
 		no_op_exec_special
 		no_op_exec_special_cuda
 
-		op_def static T op(T d1, T *params) {
+#ifdef __CUDACC__
+        __device__
+#endif
+		inline static T op(T d1, T *params) {
 			T prob = params[0];
 
 #ifdef __CUDACC__
@@ -2305,7 +3178,10 @@ template<typename T>
 		no_op_exec_special
 		no_op_exec_special_cuda
 
-		op_def static T op(T d1, T *params) {
+#ifdef __CUDACC__
+    __device__
+#endif
+        inline static T op(T d1, T *params) {
 			T prob = params[0];
 #ifdef __CUDACC__
 			T length = params[1];
@@ -2344,29 +3220,75 @@ template<typename T>
             T eps = params[2];
             int mode = (int) params[3];
             if (mode == 0) // equals
-                return nd4j::math::nd4j_abs<T>(d1 - compare) <= eps ? d2 : d1;
+                if (nd4j::math::nd4j_abs<T>(d1 - compare) <= eps)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 1) // not equals eps
-                return nd4j::math::nd4j_abs<T>(d1 - compare) > eps ? d2 : d1;
+                if (nd4j::math::nd4j_abs<T>(d1 - compare) > eps)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 2) // less_than eps
-                return d1 < compare? d2 : d1;
+                if (d1 < compare)
+                    return d2;
+                else
+                    return d1;
             else if (mode ==3) // greater_than
-                return d1 > compare? d2 : d1;
+                if (d1 > compare)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 4) // less_or_equals_than
-                return d1 <= compare? d2 : d1;
+                if (d1 <= compare)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 5) // greater_or_equals_than
-                return d1 >= compare? d2 : d1;
+                if (d1 >= compare)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 6) // abs_less_than
-                return nd4j::math::nd4j_abs<T>(d1) < compare? d2 : d1;
+                if (nd4j::math::nd4j_abs<T>(d1) < compare)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 7) // abs_greater_than
-                return nd4j::math::nd4j_abs<T>(d1) > compare? d2 : d1;
+                if (nd4j::math::nd4j_abs<T>(d1) > compare)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 8) // is inf
-                return isinf(d1) ? d2 : d1;
+                if (isinf(d1))
+                    return d2;
+                else
+                    return d1;
             else if (mode == 9) // is nan
-                return isnan(d1) ? d2 : d1;
+                if (isnan(d1))
+                    return d2;
+                else
+                    return d1;
             else if (mode == 10)
-                return (d1 == compare) ? d2 : d1;
+                if (d1 == compare)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 11)
-                return (d1 != compare) ? d2 : d1;
+                if (d1 != compare)
+                    return d2;
+                else
+                    return d1;
+            else if (mode == 12) // abs_greater_or_equals_than
+                if (nd4j::math::nd4j_abs<T>(d1) >= compare)
+                    return d2;
+                else
+                    return d1;
+            else if (mode == 13) // abs_less_or_equals_than
+                if (nd4j::math::nd4j_abs<T>(d1) <= compare)
+                    return d2;
+                else
+                    return d1;
             else
                 printf("Undefined boolean operation: [%i]\n", mode);
             return d1;
@@ -2388,29 +3310,77 @@ template<typename T>
             // with mode == 0 we do set if d1 equals to compare, and with mode == 1 - we go otherwise
             int mode = (int) params[3];
             if (mode == 0) // equals
-			    return nd4j::math::nd4j_abs<T>(d1 - compare) <= eps ? set : d1;
+                if (nd4j::math::nd4j_abs<T>(d1 - compare) <= eps)
+                    return set;
+				else
+                    return d1;
+			    //return nd4j::math::nd4j_abs<T>(d1 - compare) <= eps ? set : d1;
             else if (mode == 1) // not equals
-                return nd4j::math::nd4j_abs<T>(d1 - compare) > eps ? set : d1;
+                if (nd4j::math::nd4j_abs<T>(d1 - compare) > eps)
+                    return set;
+                else
+                    return d1;
+                //return nd4j::math::nd4j_abs<T>(d1 - compare) > eps ? set : d1;
             else if (mode == 2) // less_than
-                return d1 < compare? set : d1;
+                if (d1 < compare)
+                    return set;
+                else
+                    return d1;
             else if (mode ==3) // greater_than
-                return d1 > compare? set : d1;
+                if (d1 > compare)
+                    return set;
+                else
+                    return d1;
             else if (mode == 4) // less_or_equals_than
-                return d1 <= compare? set : d1;
+                if (d1 <= compare)
+                    return set;
+                else
+                    return d1;
             else if (mode == 5) // greater_or_equals_than
-                return d1 >= compare? set : d1;
+                if (d1 >= compare)
+                    return set;
+                else
+                    return d1;
             else if (mode == 6) // abs_less_than
-                return nd4j::math::nd4j_abs<T>(d1) < compare? set : d1;
+                if (nd4j::math::nd4j_abs<T>(d1) < compare)
+                    return set;
+                else
+                    return d1;
             else if (mode == 7) // abs_greater_than
-                return nd4j::math::nd4j_abs<T>(d1) > compare? set : d1;
+                if (nd4j::math::nd4j_abs<T>(d1) > compare)
+                    return set;
+                else
+                    return d1;
             else if (mode == 8) // is inf
-                return isinf(d1) ? set : d1;
+                if (isinf(d1))
+                    return set;
+                else
+                    return d1;
             else if (mode == 9) // is nan
-                return isnan(d1) ? set : d1;
+                if (isnan(d1))
+                    return set;
+                else
+                    return d1;
             else if (mode == 10)
-                return (d1 == compare) ? set : d1;
+                if (d1 == compare)
+                    return set;
+                else
+                    return d1;
             else if (mode == 11)
-                return (d1 != compare) ? set : d1;
+                if (d1 != compare)
+                    return set;
+                else
+                    return d1;
+            else if (mode == 12) // abs_greater_or_equals_than
+                if (nd4j::math::nd4j_abs<T>(d1) >= compare)
+                    return set;
+                else
+                    return d1;
+            else if (mode == 13) // abs_less_or_equals_than
+                if (nd4j::math::nd4j_abs<T>(d1) <= compare)
+                    return set;
+                else
+                    return d1;
             else
                 printf("Undefined boolean operation: [%i]\n", mode);
             return d1;
@@ -2422,29 +3392,75 @@ template<typename T>
             T eps = params[2];
             int mode = (int) params[3];
             if (mode == 0) // equals
-                return nd4j::math::nd4j_abs<T>(d2 - compare) <= eps ? d2 : d1;
+                if (nd4j::math::nd4j_abs<T>(d2 - compare) <= eps)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 1) // not equals
-                return nd4j::math::nd4j_abs<T>(d2 - compare) > eps ? d2 : d1;
+                if (nd4j::math::nd4j_abs<T>(d2 - compare) > eps)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 2) // less_than
-                return d2 < compare? d2 : d1;
+                if (d2 < compare)
+                    return d2;
+                else
+                    return d1;
             else if (mode ==3) // greater_than
-                return d2 > compare? d2 : d1;
+                if (d2 > compare)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 4) // less_or_equals_than
-                return d2 <= compare? d2 : d1;
+                if (d2 <= compare)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 5) // greater_or_equals_than
-                return d2 >= compare? d2 : d1;
+                if (d2 >= compare)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 6) // abs_less_than
-                return nd4j::math::nd4j_abs<T>(d2) < compare? d2 : d1;
+                if (nd4j::math::nd4j_abs<T>(d2) < compare)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 7) // abs_greater_than
-                return nd4j::math::nd4j_abs<T>(d2) > compare? d2 : d1;
+                if (nd4j::math::nd4j_abs<T>(d2) > compare)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 8) // is inf
-                return isinf(d2) ? d2 : d1;
+                if (isinf(d2))
+                    return d2;
+                else
+                    return d1;
             else if (mode == 9) // is nan
-                return isnan(d2) ? d2 : d1;
+                if (isnan(d2))
+                    return d2;
+                else
+                    return d1;
             else if (mode == 10)
-                return (d2 == compare) ? d2 : d1;
+                if (d2 == compare)
+                    return d2;
+                else
+                    return d1;
             else if (mode == 11)
-                return (d2 != compare) ? d2 : d1;
+                if (d2 != compare)
+                    return d2;
+                else
+                    return d1;
+            else if (mode == 12) // abs_greater_or_equals_than
+                if (nd4j::math::nd4j_abs<T>(d1) >= compare)
+                    return d2;
+                else
+                    return d1;
+            else if (mode == 13) // abs_less_or_equals_than
+                if (nd4j::math::nd4j_abs<T>(d1) <= compare)
+                    return d2;
+                else
+                    return d1;
             else
                 printf("Undefined boolean operation: [%i]\n", mode);
             return d1;
@@ -2600,3 +3616,4 @@ template<typename T, typename OpTypeA, typename OpTypeB>
 }
 
 #endif
+	

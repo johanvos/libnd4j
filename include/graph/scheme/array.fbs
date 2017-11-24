@@ -1,0 +1,35 @@
+namespace nd4j.graph;
+
+enum ByteOrder:byte {
+    LE,
+    BE,
+}
+
+enum DataType:byte {
+    INHERIT,
+    BOOL,
+    FLOAT8,
+    HALF,
+    HALF2,
+    FLOAT,
+    DOUBLE,
+    INT8,
+    INT16,
+    INT32,
+    INT64,
+    UINT8,
+    UINT16,
+    UINT32,
+    UINT64,
+    QINT8,
+    QINT16,
+}
+
+table FlatArray {
+    shape:[int];
+    buffer:[byte];
+    dtype:DataType;
+    byteOrder:ByteOrder;
+}
+
+root_type FlatArray;

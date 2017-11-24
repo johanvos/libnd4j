@@ -5,40 +5,22 @@
 #ifndef LIBND4J_PLAY_H
 #define LIBND4J_PLAY_H
 
-#include <op_boilerplate.h>
+#include "op_boilerplate.h"
 
-#define SCALAR_OPS \
-        (10, SCALAR::Add),\
-        (11, SCALAR::Subtract),\
-        (12, SCALAR::Multiply)
+#define ACTIVATIONS \
+        (0, nd4j::activations::Identity) ,\
+        (1, nd4j::activations::ReLU)
 
+#define NATIVE_LAYERS \
+        (0, nd4j::layers::DenseLayer)
+//        (1, nd4j::layers::ConvolutionLayer) ,\
+//        (2, nd4j::layers::Pooling2DLayer) ,\
+//        (3, nd4j::layers::LSTMLayer)
 
-#define PAIRWISE_TRANSFORM_OPS \
-        (20, PWT::Add),\
-        (21, PWT::Subtract),\
-        (22, PWT::Multiply), \
-        (23, PWT::Random)
-
-
-/*
-#define SCALAR_OPS \
-        (0, simdOps::Add),\
-        (1, simdOps::Subtract),\
-        (2, simdOps::Multiply),\
-        (3, simdOps::Divide),\
-        (4, simdOps::ReverseDivide),\
-        (5, simdOps::ReverseSubtract),\
-        (6, simdOps::Max),\
-        (7, simdOps::LessThan),\
-        (8, simdOps::GreaterThan),\
-        (9, simdOps::EqualTo),\
-        (10,simdOps::LessThanOrEqual),\
-        (11,simdOps::NotEqualTo),\
-        (12,simdOps::Min),\
-        (13,simdOps::Copy),\
-        (14,simdOps::Mod),\
-        (15,simdOps::ReverseMod),\
-        (16,simdOps::GreaterThanOrEqual)
+#define DATA_TYPES \
+        (0, float) ,\
+        (1, double) ,\
+        (2, float16)
 
 #define PAIRWISE_TRANSFORM_OPS \
         (0, simdOps::Add),\
@@ -48,7 +30,7 @@
         (4, simdOps::GreaterThan),\
         (5, simdOps::LessThan),\
         (6, simdOps::Multiply),\
-        (7, simdOps::ReverseDivide),\
+        (7, simdOps::Pow),\
         (8, simdOps::ReverseSubtract),\
         (9, simdOps::Subtract),\
         (10,simdOps::Epsilon),\
@@ -59,9 +41,45 @@
         (15,simdOps::NotEqualTo),\
         (16,simdOps::Copy),\
         (17,simdOps::Axpy),\
+        (18,simdOps::ReverseDivide),\
         (45,simdOps::CompareAndSet),\
-        (46,simdOps::CompareAndReplace)
+        (46,simdOps::CompareAndReplace),\
+        (56,simdOps::And),\
+        (57,simdOps::Or),\
+        (58,simdOps::Xor),\
+        (59,simdOps::Remainder),\
+        (60,simdOps::FMod),\
+        (69,simdOps::Atan2)
+
+
+
+//BUILD_CALL_1(template void nd4j::NDArray<float16>::applyTransform, float16, (NDArray<float16>* a, float16* b), TRANSFORM_OPS)
+
+BUILD_CALL_1(template void nd4j::NDArray<float16>::applyPairwiseTransform, float16, (NDArray<float16>* other, float16* extraParams), PAIRWISE_TRANSFORM_OPS)
+
+//BUILD_CALL_1(template void nd4j::NDArray<float16>::applyScalar, float16, (float16 scalar, NDArray<float16>* target, float16 *extraParams) , ACTIVATIONS);
+
+/*
+#define DECLARE_OP(NAME, NIN, NOUT)   DECLARE_OP_UNIQ(__COUNTER__, NAME, NIN, NOUT)
+#define DECLARE_OP_UNIQ(CTR, NAME, NIN, NOUT)   template <typename T> \
+                                                class NAME: public nd4j::ops::DeclarableOp<T> { \
+                                                public:\
+                                                NAME() : nd4j::ops::DeclarableOp<T>(NIN, NOUT, #NAME) { } \
+                                                protected: \
+                                                    Nd4jStatus validateAndExecute(Block<T>& block); \
+                                                };\
+                                                template <typename T> \
+                                                Nd4jStatus nd4j::ops::NAME<T>::validateAndExecute(Block<T>& block)
 */
+//#define END_OP(NAME) }; static nd4j::ops::__registrator<NAME<float>> register_op##Name;
+
+//#DECLARE_OP(Concat, -1, 1)
+
+//END_OP(Concat)
+
+
+//BUILD_LAYERS_FACTORY(float, OPS_A(NATIVE_LAYERS), OPS_B(ACTIVATIONS))
+
 
 //DISPATCH_SIMPLE(scalarAlongDimension_, float, PARAMS(x, xShapeInfo, extraParamx, z, zShapeInfo, scalars, tadShapeInfo, tadOffsets, tadShapeInfoZ, tadOffsetsZ), OPS_A(SCALAR_OPS))
 

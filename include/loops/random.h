@@ -5,18 +5,6 @@
 #ifndef LIBND4J_RANDOM_H
 #define LIBND4J_RANDOM_H
 
-#define RANDOM_OPS \
-        (0, randomOps::UniformDistribution) ,\
-        (1, randomOps::DropOut) ,\
-        (2, randomOps::DropOutInverted) ,\
-        (3, randomOps::ProbablisticMerge) ,\
-        (4, randomOps::Linspace) ,\
-        (5, randomOps::Choice) ,\
-        (6, randomOps::GaussianDistribution) ,\
-        (7, randomOps::BernoulliDistribution) ,\
-        (8, randomOps::BinomialDistribution),\
-        (9, randomOps::BinomialDistributionEx)
-
 
 
 #include <helpers/shape.h>
@@ -24,6 +12,7 @@
 #include <ops/random_ops.h>
 #include <ops/special_random_ops.h>
 
+#include "legacy_ops.h"
 
 
 namespace functions {
@@ -271,8 +260,8 @@ namespace functions {
 
                 nd4j::random::RandomBuffer *buffer = reinterpret_cast<nd4j::random::RandomBuffer *> (state);
 
-                int elementsPerThread = length / ELEMENT_THRESHOLD;
-                int _threads = nd4j::math::nd4j_max<int>(1, elementsPerThread);
+                Nd4jIndex elementsPerThread = length / ELEMENT_THRESHOLD;
+                Nd4jIndex _threads = nd4j::math::nd4j_max<int>(1, elementsPerThread);
                 _threads = nd4j::math::nd4j_min<int>(_threads, omp_get_max_threads());
 
                 if (xEWS >= 1 && zEWS >= 1) {
@@ -380,8 +369,8 @@ namespace functions {
 
                 nd4j::random::RandomBuffer *buffer = reinterpret_cast<nd4j::random::RandomBuffer *> (state);
 
-                int elementsPerThread = length / ELEMENT_THRESHOLD;
-                int _threads = nd4j::math::nd4j_max<int>(1, elementsPerThread);
+                Nd4jIndex elementsPerThread = length / ELEMENT_THRESHOLD;
+                Nd4jIndex _threads = nd4j::math::nd4j_max<int>(1, elementsPerThread);
                 _threads = nd4j::math::nd4j_min<int>(_threads, omp_get_max_threads());
 
                 if (ews >= 1) {

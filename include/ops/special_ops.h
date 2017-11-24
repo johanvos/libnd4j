@@ -25,6 +25,339 @@ namespace functions {
 namespace simdOps {
 
 	template<typename T>
+	class Pooling2D {
+	public:
+		static const bool requiresSpecial = true;
+#ifdef __CUDACC__
+		inline __host__ __device__
+#elif defined(__GNUC__)
+
+#endif
+		static int outSize(int size, int k, int s, int p, bool coverAll) {
+			if (coverAll)
+				return (size + p * 2 - k + s - 1) / s + 1;
+			else
+				return (size + p * 2 - k) / s + 1;
+		}
+
+#ifdef __CUDACC__
+		/**
+		* Based on:  https://github.com/pjreddie/darknet/blob/master/src/im2col_kernels.cu
+		*/
+
+		static inline __device__ void execSpecialCuda(
+			T *dx,
+			int *xShapeBuffer,
+			T *result,
+			int *resultShapeBuffer,
+			T *extraParams, int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
+			/*kernel[0], kernel[1], stride[0], stride[1], padding[0], padding[1], 0, false*/
+
+		    int kernelHeight = (int)extraParams[0];
+			int kernelWidth = (int)extraParams[1];
+			int strideY = (int)extraParams[2];
+			int strideX = (int)extraParams[3];
+			int padHeight = (int)extraParams[4];
+			int padWidth = (int)extraParams[5];
+			int dH = (int)extraParams[6];			//Dilation, height dimension
+			int dW = (int)extraParams[7];			//Dilation,  width dimension
+			int poolingMode = (int)extraParams[9];
+			T extraParam0 = extraParams[10];
+			
+			int kSize = kernelWidth * kernelHeight;
+
+			int *inShape = shape::shapeOf(xShapeBuffer);
+			int *inStride = shape::stride(xShapeBuffer);
+			int samples = inShape[0];
+			int depth = inShape[1];
+			int height = inShape[2];
+			int width = inShape[3];
+
+
+			int strideex = inStride[0];
+			int stridech = inStride[1];
+			int strideh = inStride[2];
+			int stridew = inStride[3];
+
+			int outH = resultShapeBuffer[3];
+			int outW = resultShapeBuffer[4];			
+			int *im2colShapeInfo = tadShapeInfo; // we expect (or not ??) tadShape field to be used here
+			if(im2colShapeInfo==nullptr)
+				im2colShapeInfo = new int[16] {6, samples, depth, kernelHeight, kernelWidth, outH, outW, depth*kernelHeight*kernelWidth*outH*outW, kernelHeight*kernelWidth*outH*outW, kernelWidth*outH*outW, outH*outW, outW, 1, 0, 1, 99};
+
+            int *outShape = shape::shapeOf(im2colShapeInfo);
+            char resultOrder = shape::order(im2colShapeInfo);
+            int *outStride = shape::stride(im2colShapeInfo);
+
+			int height_col = outShape[4];
+			int width_col = outShape[5];
+			int n = samples * depth * height_col * width_col;
+
+            T res;
+            T val;
+
+			int index = blockIdx.x * blockDim.x + threadIdx.x;
+			for (; index < n; index += blockDim.x*gridDim.x) {
+				int h_index = index / width_col;
+				int h_col = h_index % height_col;
+				int w_col = index % width_col;
+
+				int c_im = h_index / height_col;
+				int c_col = c_im * kSize;
+
+				int depth_im = c_im % depth;
+				int num_im = c_im / depth;
+				int h_offset = h_col * strideY - padHeight;
+				int w_offset = w_col * strideX - padWidth;
+
+				T* data_col_ptr = result;
+
+				int i_c = (c_col * height_col + h_col) * width_col + w_col;
+				data_col_ptr += (c_col * height_col + h_col) * width_col + w_col;
+
+				T* data_im_ptr = dx;
+
+                res = poolingMode == 0 ? (T) -MAX_FLOAT : (T) 0.0f;
+
+				data_im_ptr += num_im * strideex + depth_im * stridech + h_offset * strideh + w_offset*stridew;
+
+				for (int i = 0; i < kernelHeight; ++i) {
+					for (int j = 0; j < kernelWidth; ++j) {
+						int h_im = h_offset + i * dH;
+						int w_im = w_offset + j * dW;
+						int i_f = 0;
+						int i_c_temp = i_c;
+						for (int dim = 5; dim >= 0; dim--)
+						{
+							i_f += (i_c_temp % outShape[dim])  * outStride[dim];
+							i_c_temp = i_c_temp / outShape[dim];
+						}
+
+
+                        if (h_im >= 0 && w_im >= 0 && h_im < height && w_im < width)
+                            val = data_im_ptr[i * dH * strideh + j * dW * stridew];
+                        else
+                            val = (T) 0.0f;
+
+                        //kernel[i * kernelHeight + j] = val;
+                        // max
+                        if (poolingMode == 0) {
+                            if (res < val)
+                                res = val;
+                        // avg
+                        } else if (poolingMode == 1) {
+                            res += val;
+
+                        // phorm
+                        } else if (poolingMode == 2) {
+                            res += nd4j::math::nd4j_pow<T>(nd4j::math::nd4j_abs<T>(val), extraParam0);
+                        }
+
+						//result[i_f] = (h_im >= 0 && w_im >= 0 && h_im < height && w_im < width) ? data_im_ptr[i * strideh + j*stridew] : 0;
+						data_col_ptr += height_col * width_col;
+						i_c += height_col * width_col;
+					}
+				}
+
+				// avg final step
+                if (poolingMode == 1) {
+                    res /= kSize;
+
+                // pnorm final step
+                } else if (poolingMode == 2) {
+                    res = nd4j::math::nd4j_pow<T>(res, (T) 1.0f /  extraParam0);
+                }
+
+                result[index] = res;
+			}
+		}
+#endif
+
+
+		static void execSpecial(
+				T *dx,
+				int *xShapeBuffer,
+				T *result,
+				int *resultShapeBuffer,
+				T *extraParams, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
+
+
+			int kernelHeight = (int)extraParams[0];
+			int kernelWidth = (int)extraParams[1];
+			int strideY = (int)extraParams[2];
+			int strideX = (int)extraParams[3];
+			int padHeight = (int)extraParams[4];
+			int padWidth = (int)extraParams[5];
+			int dH = (int)extraParams[6];			//Dilation, height dimension
+			int dW = (int)extraParams[7];			//Dilation, width dimension
+			int poolingMode = (int)extraParams[9];
+			T extraParam0 = extraParams[10];
+
+			int kSize = kernelWidth * kernelHeight;
+
+			int *inShape = shape::shapeOf(xShapeBuffer);
+			int *inStride = shape::stride(xShapeBuffer);
+
+			int samples = inShape[0];
+			int depth = inShape[1];
+			int height = inShape[2];
+			int width = inShape[3];
+
+			int strideex = inStride[0];
+			int stridech = inStride[1];
+			int strideh = inStride[2];
+			int stridew = inStride[3];
+
+			int outH = resultShapeBuffer[3];
+			int outW = resultShapeBuffer[4];			
+            int *im2colShapeInfo = tadShapeInfo; // we expect (or not ??) tadShape field to be used here
+			if(im2colShapeInfo==nullptr)
+				im2colShapeInfo = new int[16] {6, samples, depth, kernelHeight, kernelWidth, outH, outW, depth*kernelHeight*kernelWidth*outH*outW, kernelHeight*kernelWidth*outH*outW, kernelWidth*outH*outW, outH*outW, outW, 1, 0, 1, 99};
+
+            int *outShape = shape::shapeOf(im2colShapeInfo);
+            int *outStride = shape::stride(im2colShapeInfo);
+
+			int height_col = outShape[4];
+			int width_col = outShape[5];
+
+			int n = samples * depth * height_col * width_col;
+
+			int _threads = omp_get_max_threads();
+			int span = (n / _threads) + 1;
+
+
+#pragma omp parallel num_threads(_threads) proc_bind(close)
+            {
+				int tid = omp_get_thread_num();
+				int start = span * tid;
+				int end = span * (tid + 1);
+				if (end > n) end = n;
+                T res;
+
+                for (int index = start; index < end; index++) {
+                    int h_index = index / width_col;
+                    int h_col = h_index % height_col;
+                    int w_col = index % width_col;
+
+                    int c_im = h_index / height_col;
+                    int c_col = c_im * kSize;
+
+                    int depth_im = c_im % depth;
+                    int num_im = c_im / depth;
+                    int h_offset = h_col * strideY - padHeight;
+                    int w_offset = w_col * strideX - padWidth;
+
+                    T *data_col_ptr = result;
+
+                    int i_c = (c_col * height_col + h_col) * width_col + w_col;
+                    data_col_ptr += (c_col * height_col + h_col) * width_col + w_col;
+
+                    T *data_im_ptr = dx;
+
+                    data_im_ptr += num_im * strideex + depth_im * stridech + h_offset * strideh + w_offset * stridew;
+                    res = poolingMode == 0 ? (T) -MAX_FLOAT : (T) 0.0f;
+
+                    for (int i = 0; i < kernelHeight; ++i) {
+                        for (int j = 0; j < kernelWidth; ++j) {
+                            int h_im = h_offset + i * dH;
+                            int w_im = w_offset + j * dW;
+                            int i_f = 0;
+                            int i_c_temp = i_c;
+                            for (int dim = 5; dim >= 0; dim--) {
+                                i_f += (i_c_temp % outShape[dim]) * outStride[dim];
+                                i_c_temp = i_c_temp / outShape[dim];
+                            }
+
+                            T val;
+                            if (h_im >= 0 && w_im >= 0 && h_im < height && w_im < width)
+                                val = data_im_ptr[i * dH * strideh + j * dW * stridew];
+                            else
+                                val = (T) 0.0f;
+
+                            //kernel[i * kernelHeight + j] = val;
+                            // max
+                            if (poolingMode == 0) {
+                                if (res < val)
+                                    res = val;
+                            // avg
+                            } else if (poolingMode == 1) {
+                                res += val;
+
+                            // phorm
+                            } else if (poolingMode == 2) {
+                                res += nd4j::math::nd4j_pow<T>(nd4j::math::nd4j_abs<T>(val), extraParam0);
+                            }
+
+                            //result[i_f] = (h_im >= 0 && w_im >= 0 && h_im < height && w_im < width) ? data_im_ptr[i * strideh + j*stridew] : 0;
+                            data_col_ptr += height_col * width_col;
+                            i_c += height_col * width_col;
+                        }
+                    }
+
+                    // avg final step
+                    if (poolingMode == 1) {
+                        res /= kSize;
+
+                    // pnorm final step
+                    } else if (poolingMode == 2) {
+                        res = nd4j::math::nd4j_pow<T>(res, (T) 1.0f /  extraParam0);
+                    }
+
+                    result[index] = res;
+                }
+            }
+			if(tadShapeInfo==nullptr)
+				delete[] im2colShapeInfo;
+		}
+
+		op_def static T op(T d1, T *params) {
+			return d1;
+		}
+
+
+		/** Calculate buffer offset (like Shape.getOffset) without checking on input for negative indices etc
+		*  normally negative indices are bad, OK here because of other checks on input indices
+		*  Uses unrolled loop specifically for length 4
+		*/
+#ifdef __CUDACC__
+		inline __host__ __device__
+#elif defined(__GNUC__)
+
+
+#endif
+		static int getOffsetUnsafe4(int baseOffset, int *shape, int *stride, int *indices) {
+			int offset = baseOffset;
+			if (shape[0] != 1) offset += indices[0] * stride[0];
+			if (shape[1] != 1) offset += indices[1] * stride[1];
+			if (shape[2] != 1) offset += indices[2] * stride[2];
+			if (shape[3] != 1) offset += indices[3] * stride[3];
+			return offset;
+		}
+
+
+		/**
+		* A version of Shape.getOffset without checking on input for negative indices etc
+		* normally negative indices are bad, OK here because of other checks on input indices
+		* Uses unrolled loop specifically for length 6, where indices[2] and indices[3] are zero (always are here)
+		*/
+#ifdef __CUDACC__
+		inline __host__ __device__
+#elif defined(__GNUC__)
+
+
+#endif
+		static int getOffsetUnsafe6(int baseOffset, int *shape, int *stride, int *indices) {
+			int offset = baseOffset;
+			if (shape[0] != 1) offset += indices[0] * stride[0];
+			if (shape[1] != 1) offset += indices[1] * stride[1];
+			if (shape[4] != 1) offset += indices[4] * stride[4];
+			if (shape[5] != 1) offset += indices[5] * stride[5];
+			return offset;
+		}
+
+	};
+
+	template<typename T>
 	class Im2col {
 	public:
 		static const bool requiresSpecial = true;
@@ -50,14 +383,16 @@ namespace simdOps {
 			int *xShapeBuffer,
 			T *result,
 			int *resultShapeBuffer,
-			T *extraParams, int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager) {
+			T *extraParams, int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 			/*kernel[0], kernel[1], stride[0], stride[1], padding[0], padding[1], 0, false*/
-			int kernelWidth = (int)extraParams[0];
-			int kernelHeight = (int)extraParams[1];
-			int strideX = (int)extraParams[2];
-			int strideY = (int)extraParams[3];
-			int padWidth = (int)extraParams[4];
-			int padHeight = (int)extraParams[5];
+			int kernelHeight = (int)extraParams[0];
+			int kernelWidth = (int)extraParams[1];
+			int strideY = (int)extraParams[2];
+			int strideX = (int)extraParams[3];
+			int padHeight = (int)extraParams[4];
+			int padWidth = (int)extraParams[5];
+			int dY = (int)extraParams[6];			//Dilation, height/y dimension
+			int dX = (int)extraParams[7];			//Dilation, width/x dimension
 			int kSize = kernelWidth * kernelHeight;
 
 			int *outShape = shape::shapeOf(resultShapeBuffer);
@@ -115,17 +450,17 @@ namespace simdOps {
 
 				for (int i = 0; i < kernelHeight; ++i) {
 					for (int j = 0; j < kernelWidth; ++j) {
-						int h_im = h_offset + i;
-						int w_im = w_offset + j;
+						int h_im = h_offset + i * dY;
+						int w_im = w_offset + j * dX;
 						int i_f = 0;
 						int i_c_temp = i_c;
-						for (int dim = 5; dim >= 0; dim--)
-						{
+						for (int dim = 5; dim >= 0; dim--) {
 							i_f += (i_c_temp % outShape[dim])  * outStride[dim];
 							i_c_temp = i_c_temp / outShape[dim];
 						}
-						if (h_im >= 0 && w_im >= 0 && h_im < height && w_im < width) result[i_f] = data_im_ptr[i * strideh + j*stridew];
-							else result[i_f] = 0;
+						if (h_im >= 0 && w_im >= 0 && h_im < height && w_im < width){
+							result[i_f] = data_im_ptr[i * dY * strideh + j * dX * stridew];
+						} else result[i_f] = 0;
 
 						//result[i_f] = (h_im >= 0 && w_im >= 0 && h_im < height && w_im < width) ? data_im_ptr[i * strideh + j*stridew] : 0;
 						data_col_ptr += height_col * width_col;
@@ -142,152 +477,85 @@ namespace simdOps {
 			int *xShapeBuffer,
 			T *result,
 			int *resultShapeBuffer,
-			T *extraParams, int *tadShapeInfo, int *tadOffsets) {
+			T *extraParams, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 			/*kernel[0], kernel[1], stride[0], stride[1], padding[0], padding[1], 0, false*/
-			int kernelWidth = (int)extraParams[0];
-			int kernelHeight = (int)extraParams[1];
-			int strideX = (int)extraParams[2];
-			int strideY = (int)extraParams[3];
-			int padWidth = (int)extraParams[4];
-			int padHeight = (int)extraParams[5];
-			bool isSameMode = extraParams[6] > 0.0;
 
-			int outArrayOffset = 0;
+			int kernelHeight = (int)extraParams[0];
+			int kernelWidth = (int)extraParams[1];
+			int strideY = (int)extraParams[2];
+			int strideX = (int)extraParams[3];
+			int padHeight = (int)extraParams[4];
+			int padWidth = (int)extraParams[5];
+			int dY = (int)extraParams[6];			//Dilation, height/y dimension
+			int dX = (int)extraParams[7];			//Dilation, width/x dimension
+			int kSize = kernelWidth * kernelHeight;
+
 			int *outShape = shape::shapeOf(resultShapeBuffer);
+			char resultOrder = shape::order(resultShapeBuffer);
 			int *outStride = shape::stride(resultShapeBuffer);
 
-			int inArrayOffset = 0;
 			int *inShape = shape::shapeOf(xShapeBuffer);
 			int *inStride = shape::stride(xShapeBuffer);
 
-            bool padding = isSameMode || padHeight > 0 || padWidth > 0;
-
-			int exampleFrom = 0;
-			int exampleTo = inShape[0];
-			int depthFrom = 0;
-			int depthTo = inShape[1];
-			int yOutFrom = 0;
-			int yOutTo = outShape[4];
-			int xOutFrom = 0;
-			int xOutTo = outShape[5];
-
-			T *dIn = dx;
-			T *dOut = result;
-
-			int tadsPerThread = (exampleTo - exampleFrom) + (depthTo - depthFrom) / 4;
-			int num_threads = nd4j::math::nd4j_max<int>(1, tadsPerThread);
-			num_threads = nd4j::math::nd4j_min<int>(num_threads, omp_get_max_threads());
+			int samples = inShape[0];
+			int depth = inShape[1];
+			int height = inShape[2];
+			int width = inShape[3];
 
 
-#pragma omp parallel for num_threads(num_threads) if (num_threads>1) collapse(2) proc_bind(AFFINITY) default(shared)
-			for (int ex = exampleFrom; ex < exampleTo; ex++) {
-				for (int d = depthFrom; d < depthTo; d++) {
-					int outIndices[6];
-					int inIndices[4];
+			int strideex = inStride[0];
+			int stridech = inStride[1];
+			int strideh = inStride[2];
+			int stridew = inStride[3];
 
-					int inStride2 = inStride[2];
-					int inStride3 = inStride[3];
-					int outStride2 = outStride[2];
-					int outStride3 = outStride[3];
-					int inShape2 = inShape[2];
-					int inShape3 = inShape[3];
+			int height_col = outShape[4];
+			int width_col = outShape[5];
 
-					inIndices[0] = ex;
-					inIndices[1] = d;
-					outIndices[0] = ex;
-					outIndices[1] = d;
+			int n = samples * depth * height_col * width_col;
 
-					for (int x = xOutFrom; x < xOutTo; x++) {  //Along width
-						for (int y = yOutFrom; y < yOutTo; y++) {  //along height
-							outIndices[4] = y;
-							outIndices[5] = x;
-							int baseOffsetOut = getOffsetUnsafe6(outArrayOffset, outShape, outStride,
-								outIndices);
+#pragma omp parallel for schedule(guided) proc_bind(close)
+			for (int index = 0; index < n; index++) {
+				int h_index = index / width_col;
+				int h_col = h_index % height_col;
+				int w_col = index % width_col;
 
-							if (padding) {
-								int i = y * strideY -
-									padHeight;    //index along height of first element of patch in original img
-								int j = x * strideX -
-									padWidth;     //index along width of first element in patch in original img
-								inIndices[2] = i;   //along height
-								inIndices[3] = j;   //along width
+				int c_im = h_index / height_col;
+				int c_col = c_im * kSize;
 
-								int baseOffsetIn = getOffsetUnsafe4(inArrayOffset, inShape, inStride,
-									inIndices);
-								if (outStride2 <= outStride3) {
-									//Want dimension 2 (along height) in inner loop for cache reasons
-									for (int patchX = 0; patchX < kernelWidth; patchX++) {
-										int outBufferIdxX = baseOffsetOut + patchX * outStride3;
-										int inBufferIdxX = baseOffsetIn + patchX * inStride3;
-										for (int patchY = 0; patchY < kernelHeight; patchY++) {
-											if (i + patchY < 0 || j + patchX < 0 || i + patchY >= inShape2 ||
-												j + patchX >= inShape3)
-												dOut[outBufferIdxX + patchY * outStride2] = 0; //padding
-											else {
-												dOut[outBufferIdxX + patchY * outStride2] = dIn[inBufferIdxX +
-													patchY *
-													inStride2];
-											}
-										}
-									}
-								}
-								else {
-									//Want dimension 3 in inner loop for cache reasons
-									for (int patchY = 0; patchY < kernelHeight; patchY++) {
-										int outBufferIdxY = baseOffsetOut + patchY * outStride2;
-										int inBufferIdxY = baseOffsetIn + patchY * inStride2;
-										for (int patchX = 0; patchX < kernelWidth; patchX++) {
-											if (i + patchY < 0 || j + patchX < 0 || i + patchY >= inShape[2] ||
-												j + patchX >= inShape[3])
-												dOut[outBufferIdxY + patchX * outStride3] = 0.0; //padding
-											else {
-												dOut[outBufferIdxY + patchX * outStride3] = dIn[inBufferIdxY +
-													patchX *
-													inStride3];
-											}
-										}
-									}
-								}
-							}
-							else {
-								//No padding
-								int i = y *
-									strideY;    //index along height of first element of patch in original img
-								int j = x *
-									strideX;     //index along width of first element in patch in original img
-								inIndices[2] = i;   //along height
-								inIndices[3] = j;   //along width
+				int depth_im = c_im % depth;
+				int num_im = c_im / depth;
+				int h_offset = h_col * strideY - padHeight;
+				int w_offset = w_col * strideX - padWidth;
 
-								int baseOffsetIn = getOffsetUnsafe4(inArrayOffset, inShape, inStride,
-									inIndices);
-								if (outStride2 <= outStride3) {
-									//Want dimension 2 (along height) in inner loop for cache reasons
-									for (int patchX = 0; patchX < kernelWidth; patchX++) {
-										int outBufferIdxX = baseOffsetOut + patchX * outStride3;
-										int inBufferIdxX = baseOffsetIn + patchX * inStride3;
-										for (int patchY = 0; patchY < kernelHeight; patchY++) {
-											dOut[outBufferIdxX + patchY * outStride2] = dIn[inBufferIdxX +
-												patchY * inStride2];
-										}
-									}
-								}
-								else {
-									//Want dimension 3 in inner loop for cache reasons
-									for (int patchY = 0; patchY < kernelHeight; patchY++) {
-										int outBufferIdxY = baseOffsetOut + patchY * outStride2;
-										int inBufferIdxY = baseOffsetIn + patchY * inStride2;
-										for (int patchX = 0; patchX < kernelWidth; patchX++) {
-											dOut[outBufferIdxY + patchX * outStride3] = dIn[inBufferIdxY +
-												patchX * inStride3];
-										}
-									}
-								}
-							}
+				T* data_col_ptr = result;
+
+				int i_c = (c_col * height_col + h_col) * width_col + w_col;
+				data_col_ptr += (c_col * height_col + h_col) * width_col + w_col;
+
+				T* data_im_ptr = dx;
+
+				data_im_ptr += num_im * strideex + depth_im * stridech + h_offset * strideh + w_offset*stridew;
+
+				for (int i = 0; i < kernelHeight; ++i) {
+					for (int j = 0; j < kernelWidth; ++j) {
+						int h_im = h_offset + i * dY;
+						int w_im = w_offset + j * dX;
+						int i_f = 0;
+						int i_c_temp = i_c;
+						for (int dim = 5; dim >= 0; dim--) {
+							i_f += (i_c_temp % outShape[dim])  * outStride[dim];
+							i_c_temp = i_c_temp / outShape[dim];
 						}
+						if (h_im >= 0 && w_im >= 0 && h_im < height && w_im < width){
+							result[i_f] = data_im_ptr[i * dY * strideh + j * dX * stridew];
+						} else result[i_f] = 0;
+
+						//result[i_f] = (h_im >= 0 && w_im >= 0 && h_im < height && w_im < width) ? data_im_ptr[i * strideh + j*stridew] : 0;
+						data_col_ptr += height_col * width_col;
+						i_c += height_col * width_col;
 					}
 				}
 			}
-
 		}
 
 		op_def static T op(T d1, T *params) {
@@ -348,7 +616,7 @@ namespace simdOps {
 			int *xShapeBuffer,
 			T *result,
 			int *resultShapeBuffer,
-			T *extraParams, int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager) {
+			T *extraParams, int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 
             int numBins = (int) extraParams[0];
             T min_val = extraParams[1];
@@ -441,7 +709,7 @@ namespace simdOps {
 				int *xShapeBuffer,
 				T *result,
 				int *resultShapeBuffer,
-				T *extraParams, int *tadShapeInfo, int *tadOffsets) {
+				T *extraParams, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 
 			int length = shape::length(xShapeBuffer);
 			int _threads = 2;
@@ -530,7 +798,7 @@ namespace simdOps {
 			int *xShapeBuffer,
 			T *result,
 			int *resultShapeBuffer,
-			T *extraParams, int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager) {
+			T *extraParams, int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 			int *inShape = shape::shapeOf(xShapeBuffer);
 			int *inStride = shape::stride(xShapeBuffer);
 
@@ -546,12 +814,14 @@ namespace simdOps {
 
 			// C
 
-			int strideX = (int)extraParams[0];
-			int strideY = (int)extraParams[1];
-			int padWidth = (int)extraParams[2];
-			int padHeight = (int)extraParams[3];
-			int imgHeight = (int)extraParams[4];
-			int imgWidth = (int)extraParams[5];
+			int strideY = (int)extraParams[0];
+			int strideX = (int)extraParams[1];
+            int padHeight = (int)extraParams[2];
+			int padWidth = (int)extraParams[3];
+            int imgHeight = (int)extraParams[4];
+            int imgWidth = (int)extraParams[5];
+			int dY = (int)extraParams[6];			//Dilation in height/y dimension
+            int dX = (int)extraParams[7];			//Dilation in width/x dimension
 
 			int *outShape = shape::shapeOf(resultShapeBuffer);
 			char resultOrder = shape::order(resultShapeBuffer);
@@ -559,8 +829,8 @@ namespace simdOps {
 
 			int samples = outShape[0];
 			int depth = outShape[1];
-			//int height = outShape[2];
-			//int width = outShape[3];
+			int imgH = outShape[2];
+			int imgW = outShape[3];
 
 			int height_col = inShape[4];//(imgHeight + 2 * padHeight - kernelHeight) / strideX + 1;
 			int width_col = inShape[5];//(imgWidth + 2 * padWidth - kernelWidth) / strideY + 1;
@@ -571,7 +841,9 @@ namespace simdOps {
 			printf("Kernel h: [%i], w: [%i]; Col h: [%i], w: [%i]; Stride x: [%i], y: [%i]; Height: [%i], Width: [%i], Depth: [%i], N: [%i], Samples: [%i]\n",
 			kernelHeight, kernelWidth, height_col, width_col, strideX, strideY, imgHeight, imgWidth, depth, n, samples);*/
 
-
+			//Effective kernel size, accounting for dilation
+			int kEffectiveW = kernelWidth + (kernelWidth - 1) * (dX - 1);
+			int kEffectiveH = kernelHeight + (kernelHeight - 1) * (dY - 1);
 
 			for (int i = (blockDim.x * blockIdx.x) + threadIdx.x; i < n; i += blockDim.x * gridDim.x) {
 				T val = 0;
@@ -583,21 +855,27 @@ namespace simdOps {
 				int depth_im = c_im % depth;
 
 				// compute the start and end of the output
-				int w_col_start = (w_im < kernelWidth) ? 0 : (w_im - kernelWidth) / strideX + 1;
+				// These are the indexes for dimensions ??? in the 6d col matrix
+				int w_col_start = (w_im < kEffectiveW) ? 0 : (w_im - kEffectiveW) / strideX + 1;
 				int w_col_end = nd4j::math::nd4j_min<int>(w_im / strideX + 1, width_col);
 
-				int h_col_start = (h_im < kernelHeight) ? 0 : (h_im - kernelHeight) / strideY + 1;
+				int h_col_start = (h_im < kEffectiveH) ? 0 : (h_im - kEffectiveH) / strideY + 1;
 				int h_col_end = nd4j::math::nd4j_min<int>(h_im / strideY + 1, height_col);
 
 
+				//Iterate over col entries in the 6d array... these are added up
 				for (int h_col = h_col_start; h_col < h_col_end; h_col += 1) {
 					for (int w_col = w_col_start; w_col < w_col_end; w_col += 1) {
 						int h_k = (h_im - h_col * strideY);
 						int w_k = (w_im - w_col * strideX);
+						
+						if(h_k % dY == 0 && w_k % dX == 0){
+							h_k /= dY;
+							w_k /= dX;
 
-						int data_col_index = num_im * strideex + depth_im * stridech + h_k * stridekrow + w_k * stridekcol + h_col * striderow + w_col * stridecol;
-
-						val += dx[data_col_index];
+							int data_col_index = num_im * strideex + depth_im * stridech + h_k * stridekrow + w_k * stridekcol + h_col * striderow + w_col * stridecol;
+							val += dx[data_col_index];
+						}
 					}
 				}
 				int i_f = 0;
@@ -617,141 +895,94 @@ namespace simdOps {
 			int *xShapeBuffer,
 			T *result,
 			int *resultShapeBuffer,
-			T *extraParams, int *tadShapeInfo, int *tadOffsets) {
-			int inOffset = 0;
-			int *inShape = shape::shapeOf(xShapeBuffer);
-			int *inStride = shape::stride(xShapeBuffer);
+			T *extraParams, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 
-			int kernelHeight = inShape[2];
-			int kernelWidth = inShape[3];
-			/* int strideY, int strideX, int padHeight, int padWidth, int imgHeight, int imgWidth, */
-			int strideX = (int)extraParams[0];
-			int strideY = (int)extraParams[1];
-			int padWidth = (int)extraParams[2];
-			int padHeight = (int)extraParams[3];
+            int *inShape = shape::shapeOf(xShapeBuffer);
+            int *inStride = shape::stride(xShapeBuffer);
 
+            int strideex = inStride[0];
+            int stridech = inStride[1];
+            int stridekrow = inStride[2];
+            int stridekcol = inStride[3];
+            int striderow = inStride[4];
+            int stridecol = inStride[5];
 
-			int exampleFrom = 0;
-			int exampleTo = inShape[0];
-			int depthFrom = 0;
-			int depthTo = inShape[1];
+            int kernelHeight = inShape[2];
+            int kernelWidth = inShape[3];
 
-			int outArrayOffset = 0;
-			int *outShape = shape::shapeOf(resultShapeBuffer);
-			int *outStride = shape::stride(resultShapeBuffer);
+            // C
 
-
-			int tadsPerThread = (exampleTo - exampleFrom) + (depthTo - depthFrom) / 4;
-			int num_threads = nd4j::math::nd4j_max<int>(1, tadsPerThread);
-			num_threads = nd4j::math::nd4j_min<int>(num_threads, omp_get_max_threads());
-
-			T *fIn = dx;
-			T *fOut = result;
-#pragma omp parallel for num_threads(num_threads) if (num_threads>1) collapse(2) proc_bind(AFFINITY) default(shared)
-			for (int ex = exampleFrom; ex < exampleTo; ex++) {
-				for (int d = depthFrom; d < depthTo; d++) {
-					int outIndices[4];
-					int inIndices[6];
-
-					int inStride2 = inStride[2];
-					int inStride3 = inStride[3];
-					int outStride2 = outStride[2];
-					int outStride3 = outStride[3];
-					int outShape2 = outShape[2];
-					int outShape3 = outShape[3];
-
-					int yOutTo = inShape[4];
-					int xOutTo = inShape[5];
+            int strideY = (int)extraParams[0];
+			int strideX = (int)extraParams[1];
+            int padHeight = (int)extraParams[2];
+			int padWidth = (int)extraParams[3];
+            int imgHeight = (int)extraParams[4];
+            int imgWidth = (int)extraParams[5];
+			int dY = (int)extraParams[6];			//Dilation in height/y dimension
+            int dX = (int)extraParams[7];			//Dilation in width/x dimension
 
 
-					bool padding = true;	//isSameMode || padHeight > 0 || padWidth > 0;
-					inIndices[0] = ex;
-					inIndices[1] = d;
-					outIndices[0] = ex;
-					outIndices[1] = d;
+            int *outShape = shape::shapeOf(resultShapeBuffer);
+            char resultOrder = shape::order(resultShapeBuffer);
+            int *outStride = shape::stride(resultShapeBuffer);
 
-					for (int x = 0; x < xOutTo; x++) {  //Patch number along width
-						for (int y = 0; y < yOutTo; y++) {  //Patch number along height
-							inIndices[4] = y;   //patch number (along height)
-							inIndices[5] = x;   //patch number (along width)
-							int baseOffsetIn = getOffsetUnsafe6(inOffset, inShape, inStride, inIndices);
+            int samples = outShape[0];
+            int depth = outShape[1];
+            int imgH = outShape[2];
+            int imgW = outShape[3];
 
-							if (padding) {
-								int i = y * strideY -
-									padHeight;    //index along height of first element of patch in original img
-								int j = x * strideX -
-									padWidth;     //index along width of first element in patch in original img
-								outIndices[2] = i;  //along height
-								outIndices[3] = j;  //along width
+            int height_col = inShape[4];//(imgHeight + 2 * padHeight - kernelHeight) / strideX + 1;
+            int width_col = inShape[5];//(imgWidth + 2 * padWidth - kernelWidth) / strideY + 1;
 
-								int baseOffsetOut = getOffsetUnsafe4(outArrayOffset, outShape, outStride,
-									outIndices);
+            int n = samples * depth * imgHeight * imgWidth;
 
-								if (inStride2 <= inStride3) {
-									//Want dimension 2 (along height) in inner loop for cache efficiency
-									for (int patchX = 0; patchX < kernelWidth; patchX++) {
-										if (j + patchX < 0 || j + patchX >= outShape3)
-											continue;
+            //Effective kernel size, accounting for dilation
+            int kEffectiveW = kernelWidth + (kernelWidth - 1) * (dX - 1);
+            int kEffectiveH = kernelHeight + (kernelHeight - 1) * (dY - 1);
 
-										for (int patchY = 0; patchY < kernelHeight; patchY++) {
-											if (i + patchY < 0 || i + patchY >= outShape2)
-												continue;
-											fOut[baseOffsetOut + patchY * outStride2 + patchX * outStride3] +=
-												fIn[baseOffsetIn + patchY * inStride2 + patchX * inStride3];
-										}
-									}
-								}
-								else {
-									//Want dimension 3 (along width) in inner loop for cache efficiency
-									for (int patchY = 0; patchY < kernelHeight; patchY++) {
-										if (i + patchY < 0 || i + patchY >= outShape2)
-											continue;
-										for (int patchX = 0; patchX < kernelWidth; patchX++) {
-											if (j + patchX < 0 || j + patchX >= outShape3)
-												continue;
-											fOut[baseOffsetOut + patchY * outStride2 + patchX * outStride3] +=
-												fIn[baseOffsetIn + patchY * inStride2 + patchX * inStride3];
-										}
-									}
-								}
-							}
-							else {
-								//No padding
-								int i = y *
-									strideY;    //index along height of first element of patch in output img
-								int j = x *
-									strideX;     //index along width of first element in patch in output img
+#pragma omp parallel for schedule(guided) proc_bind(close)
+            for (int i = 0; i < n; i++) {
+                T val = 0;
+                int w_im = i % imgWidth + padWidth;
+                int h_im = (i / imgWidth) % imgHeight + padHeight;
+                int c_im = i / (imgWidth * imgHeight);
 
-								outIndices[2] = i;
-								outIndices[3] = j;
+                int num_im = c_im / depth;
+                int depth_im = c_im % depth;
 
-								int baseOffsetOut = getOffsetUnsafe4(outArrayOffset, outShape, outStride,
-									outIndices);
+                // compute the start and end of the output
+                // These are the indexes for dimensions ??? in the 6d col matrix
+                int w_col_start = (w_im < kEffectiveW) ? 0 : (w_im - kEffectiveW) / strideX + 1;
+                int w_col_end = nd4j::math::nd4j_min<int>(w_im / strideX + 1, width_col);
 
-								if (inStride2 <= inStride3) {
-									//Want dimension 2 (along height) in inner loop for cache efficiency
-									for (int patchX = 0; patchX < kernelWidth; patchX++) {
-										for (int patchY = 0; patchY < kernelHeight; patchY++) {
-											fOut[baseOffsetOut + patchY * outStride2 + patchX * outStride3] +=
-												fIn[baseOffsetIn + patchY * inStride2 + patchX * inStride3];
-										}
-									}
-								}
-								else {
-									//Want dimension 3 (along width) in inner loop for cache efficiency
-									for (int patchY = 0; patchY < kernelHeight; patchY++) {
-										for (int patchX = 0; patchX < kernelWidth; patchX++) {
-											fOut[baseOffsetOut + patchY * outStride2 + patchX * outStride3] +=
-												fIn[baseOffsetIn + patchY * inStride2 + patchX * inStride3];
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-			}
+                int h_col_start = (h_im < kEffectiveH) ? 0 : (h_im - kEffectiveH) / strideY + 1;
+                int h_col_end = nd4j::math::nd4j_min<int>(h_im / strideY + 1, height_col);
 
+
+                //Iterate over col entries in the 6d array... these are added up
+                for (int h_col = h_col_start; h_col < h_col_end; h_col += 1) {
+                    for (int w_col = w_col_start; w_col < w_col_end; w_col += 1) {
+                        int h_k = (h_im - h_col * strideY);
+                        int w_k = (w_im - w_col * strideX);
+
+                        if(h_k % dY == 0 && w_k % dX == 0){
+                            h_k /= dY;
+                            w_k /= dX;
+
+                            int data_col_index = num_im * strideex + depth_im * stridech + h_k * stridekrow + w_k * stridekcol + h_col * striderow + w_col * stridecol;
+                            val += dx[data_col_index];
+                        }
+                    }
+                }
+                int i_f = 0;
+                int i_c = i;
+                for (int dim = 3; dim >= 0; dim--)
+                {
+                    i_f += (i_c % outShape[dim])  * outStride[dim];
+                    i_c = i_c / outShape[dim];
+                }
+                result[i_f] += val;
+            }
 
 		}
 
@@ -801,6 +1032,249 @@ namespace simdOps {
 	};
 
 
+	template<typename T>
+	class Reverse {
+	public:
+		static const bool requiresSpecial = true;
+
+#ifdef __CUDACC__
+		static inline __device__ void execSpecialCuda(T *dx, int *xShapeBuffer, T *result, int *zShapeBuffer, T *extraParams, int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
+            __shared__ Nd4jIndex xLength;
+			__shared__ int xEWS;
+            __shared__ char xOrder;
+            __shared__ Nd4jIndex sLength;
+            __shared__ T *shmem;
+            int tid = threadIdx.x + blockIdx.x * blockDim.x;
+
+            if (threadIdx.x == 0) {
+                xLength = shape::length(xShapeBuffer);
+			    xEWS = shape::elementWiseStride(xShapeBuffer);
+                xOrder = shape::order(xShapeBuffer);
+                sLength = xLength - 1;
+
+                extern __shared__ unsigned char shrd[];
+                shmem = (T *) shrd;
+            }
+            __syncthreads();
+
+
+
+            if (dx == result) {
+
+                if (xEWS == 1) {
+                    for (int e = tid; e < xLength / 2; e += blockDim.x * gridDim.x) {
+                        Nd4jIndex idx = sLength - e;
+                        T tmp = dx[e];
+                        dx[e] = dx[idx];
+                        dx[idx] = tmp;
+                    }
+                } else if (xEWS >= 1) {
+                    for (int e = tid; e < xLength / 2; e += blockDim.x * gridDim.x) {
+                        Nd4jIndex idx1 = (sLength - e) * xEWS;
+                        Nd4jIndex idx2 =  e * xEWS;
+                        T tmp = dx[idx2];
+                        dx[idx2] = dx[idx1];
+                        dx[idx1] = tmp;
+                    }
+                } else {
+                    __shared__ int xRank;
+                    __shared__ int *xShape;
+                    __shared__ int *xStride;
+
+                    if (threadIdx.x == 0) {
+				        xRank = shape::rank(xShapeBuffer);
+                        xShape = shape::shapeOf(xShapeBuffer);
+                        xStride = shape::stride(xShapeBuffer);
+				    }
+				    __syncthreads();
+
+					int xCoord[MAX_RANK];
+					int zCoord[MAX_RANK];
+
+					for (int e = tid; e < xLength / 2; e += blockDim.x * gridDim.x) {
+                        if (xOrder == 'c') {
+                            shape::ind2subC(xRank, xShape, e, xCoord);
+                            shape::ind2subC(xRank, xShape, sLength - e, zCoord);
+                        } else {
+                            shape::ind2sub(xRank, xShape, e, xCoord);
+                            shape::ind2sub(xRank, xShape, sLength - e, zCoord);
+                        }
+
+                        Nd4jIndex xOffset = shape::getOffset(0, xShape, xStride, xCoord, xRank);
+                        Nd4jIndex zOffset = shape::getOffset(0, xShape, xStride, zCoord, xRank);
+
+                        result[zOffset] = dx[xOffset];
+					}
+                }
+
+            } else {
+                __shared__ int zEWS;
+				__shared__ char zOrder;
+
+				if (threadIdx.x == 0) {
+				    zEWS = shape::elementWiseStride(zShapeBuffer);
+				    zOrder = shape::order(zShapeBuffer);
+				}
+				__syncthreads();
+
+                if (xEWS == 1 && zEWS == 1 && xOrder == zOrder) {
+                    // loop for whole array
+                    for (int e = tid; e < xLength; e += blockDim.x * gridDim.x) {
+                        result[sLength - e] = dx[e];
+                    }
+                } else if (xEWS >= 1 && zEWS >= 1 && xOrder == zOrder) {
+
+                    for (int e = tid; e < xLength; e += blockDim.x * gridDim.x) {
+                        result[(sLength - e) * zEWS] = dx[e * xEWS];
+                    }
+                } else {
+                    __shared__ int xRank;
+                    __shared__ int *xShape;
+                    __shared__ int *xStride;
+
+					__shared__ int zRank;
+					__shared__ int *zShape;
+                    __shared__ int *zStride;
+
+                    if (threadIdx.x == 0) {
+				        xRank = shape::rank(xShapeBuffer);
+                        xShape = shape::shapeOf(xShapeBuffer);
+                        xStride = shape::stride(xShapeBuffer);
+
+					    zRank = shape::rank(zShapeBuffer);
+					    zShape = shape::shapeOf(zShapeBuffer);
+                        zStride = shape::stride(zShapeBuffer);
+				    }
+				    __syncthreads();
+
+					int xCoord[MAX_RANK];
+					int zCoord[MAX_RANK];
+
+                    for (int e = tid; e < xLength; e += blockDim.x * gridDim.x) {
+                        if (xOrder == 'c') {
+                            shape::ind2subC(xRank, xShape, e, xCoord);
+                            shape::ind2subC(xRank, xShape, sLength - e, zCoord);
+                        } else {
+                            shape::ind2sub(xRank, xShape, e, xCoord);
+                            shape::ind2sub(xRank, xShape, sLength - e, zCoord);
+                        }
+
+
+                        Nd4jIndex xOffset = shape::getOffset(0, xShape, xStride, xCoord, xRank);
+                        Nd4jIndex zOffset = shape::getOffset(0, xShape, xStride, zCoord, xRank);
+
+                        result[zOffset] = dx[xOffset];
+                    }
+                }
+            }
+		}
+
+#endif
+
+
+		static void execSpecial(T *dx, int *xShapeBuffer, T *result, int *zShapeBuffer, T *extraParams, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
+			Nd4jIndex xLength = shape::length(xShapeBuffer);
+			int xEWS = shape::elementWiseStride(xShapeBuffer);
+            char xOrder = shape::order(xShapeBuffer);
+            Nd4jIndex sLength = xLength - 1;
+
+			// two step phase here
+			if (dx == result) {
+				if (xEWS == 1) {
+#pragma omp parallel for schedule(guided)
+                    for (Nd4jIndex e = 0; e < xLength / 2; e++) {
+                        Nd4jIndex idx = sLength - e;
+                        T tmp = dx[e];
+                        dx[e] = dx[idx];
+                        dx[idx] = tmp;
+                    }
+				} else if (xEWS > 1) {
+#pragma omp parallel for schedule(guided)
+                    for (Nd4jIndex e = 0; e < xLength / 2; e++) {
+                        Nd4jIndex idx1 = (sLength - e) * xEWS;
+                        Nd4jIndex idx2 =  e * xEWS;
+                        T tmp = dx[idx2];
+                        dx[idx2] = dx[idx1];
+                        dx[idx1] = tmp;
+                    }
+				} else {
+                    int xRank = shape::rank(xShapeBuffer);
+                    int *xShape = shape::shapeOf(xShapeBuffer);
+                    int *xStride = shape::stride(xShapeBuffer);
+
+                    int xCoord[MAX_RANK];
+                    int zCoord[MAX_RANK];
+
+#pragma omp parallel for private(xCoord, zCoord) schedule(guided)
+                    for (Nd4jIndex e = 0; e < xLength / 2; e++) {
+                        if (xOrder == 'c') {
+                            shape::ind2subC(xRank, xShape, e, xCoord);
+                            shape::ind2subC(xRank, xShape, sLength - e, zCoord);
+                        } else {
+                            shape::ind2sub(xRank, xShape, e, xCoord);
+                            shape::ind2sub(xRank, xShape, sLength - e, zCoord);
+                        }
+
+                        Nd4jIndex xOffset = shape::getOffset(0, xShape, xStride, xCoord, xRank);
+                        Nd4jIndex zOffset = shape::getOffset(0, xShape, xStride, zCoord, xRank);
+
+                        result[zOffset] = dx[xOffset];
+                    }
+				}
+			} else {
+				// single step phase here
+				int zEWS = shape::elementWiseStride(zShapeBuffer);
+				char zOrder = shape::order(zShapeBuffer);
+
+				if (xEWS == 1 && zEWS == 1 && xOrder == zOrder) {
+#pragma omp parallel for schedule(guided)
+					for (Nd4jIndex e = 0; e < xLength; e++) {
+						result[sLength - e] = dx[e];
+					}
+				} else if (xEWS >= 1 && zEWS >= 1 && xOrder == zOrder) {
+#pragma omp parallel for schedule(guided)
+					for (Nd4jIndex e = 0; e < xLength; e++) {
+						result[(sLength - e) * zEWS] = dx[e * xEWS];
+					}
+				} else {
+
+					int xRank = shape::rank(xShapeBuffer);
+                    int *xShape = shape::shapeOf(xShapeBuffer);
+                    int *xStride = shape::stride(xShapeBuffer);
+
+					int zRank = shape::rank(zShapeBuffer);
+					int *zShape = shape::shapeOf(zShapeBuffer);
+                    int *zStride = shape::stride(zShapeBuffer);
+
+					int xCoord[MAX_RANK];
+					int zCoord[MAX_RANK];
+
+#pragma omp parallel for private(xCoord, zCoord) schedule(guided)
+					for (Nd4jIndex e = 0; e < xLength; e++) {
+
+						if (xOrder == 'c')
+							shape::ind2subC(xRank, xShape, e, xCoord);
+						else
+							shape::ind2sub(xRank, xShape, e, xCoord);
+
+						if (zOrder == 'c')
+                            shape::ind2subC(zRank, zShape, (sLength - e), zCoord);
+                        else
+                        	shape::ind2sub(zRank, zShape, (sLength - e), zCoord);
+
+						Nd4jIndex xOffset = shape::getOffset(0, xShape, xStride, xCoord, xRank);
+                        Nd4jIndex zOffset = shape::getOffset(0, zShape, zStride, zCoord, zRank);
+
+						result[zOffset] = dx[xOffset];
+					}
+				}
+			}
+		}
+
+        op_def static T op(T d1, T *params) {
+            return d1;
+        }
+	};
 
 	template<typename T>
 	class SoftMax {
@@ -818,7 +1292,7 @@ namespace simdOps {
 			T *result,
 			int *resultShapeBuffer,
 			T *extraParams,
-			int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager) {
+			int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 
 			int *shape = shape::shapeOf(xShapeBuffer);
 			__shared__ T maxResult;
@@ -850,7 +1324,7 @@ namespace simdOps {
 			__syncthreads();
 
 			//after subtracting the row wise maxes take the exp
-			functions::transform::Transform<T>::template transformCuda<simdOps::Exp<T>>(result, resultShapeBuffer, extraParams, result, resultShapeBuffer, allocationPointer, reductionPointer, manager);
+			functions::transform::Transform<T>::template transformCuda<simdOps::Exp<T>>(result, resultShapeBuffer, extraParams, result, resultShapeBuffer, allocationPointer, reductionPointer, manager, tadShapeInfo, tadOffsets);
 			__syncthreads();
 
 			//take the sum for the exponential
@@ -859,6 +1333,7 @@ namespace simdOps {
 
 			//divide by the sum
 			functions::scalar::ScalarTransform<T>::template transformCuda<simdOps::Divide<T>>(maxResult, result, resultShapeBuffer, extraParams, result, resultShapeBuffer, allocationPointer, manager);
+
 		}
 #endif
 
@@ -867,7 +1342,7 @@ namespace simdOps {
 			int *xShapeBuffer,
 			T *result,
 			int *resultShapeBuffer,
-			T *extraParams, int *tadShapeInfo, int *tadOffsets) {
+			T *extraParams, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 			if (shape::isMatrix(xShapeBuffer)) {
 				int *shape = shape::shapeOf(xShapeBuffer);
 				//iterate along rows
@@ -883,7 +1358,7 @@ namespace simdOps {
 					nullptr, nullptr);
 
 				//subtract max of each row
-				functions::broadcast::Broadcast<T>::template exec<simdOps::Subtract<T>>(result, resultShapeBuffer, maxResult.data(), maxResultShapeBuffer, result, resultShapeBuffer, dimension, 1,
+				functions::broadcast::Broadcast<T>::template exec<simdOps::Subtract<T>>(dx, xShapeBuffer, maxResult.data(), maxResultShapeBuffer, result, resultShapeBuffer, dimension, 1,
 					nullptr, nullptr, nullptr, nullptr);
 
 				//after subtracting the row wise maxes take the exp
@@ -908,24 +1383,14 @@ namespace simdOps {
 				if (elementWiseStride >= 1 && resultElementWiseStride >= 1) {
 					if (elementWiseStride == 1 && resultElementWiseStride == 1) {
 
-
-#pragma omp simd reduction(max:max)
+#pragma omp simd reduction(maxT:max)
 						for (int i = 0; i < length; i++) {
 							max = nd4j::math::nd4j_max<T>(max, dx[i]);
 						}
 
-#pragma omp simd
+#pragma omp parallel for simd reduction(sumT:sum)
 						for (int i = 0; i < length; i++) {
-							result[i] = dx[i] - max;
-						}
-
-#pragma omp simd
-						for (int i = 0; i < length; i++) {
-							result[i] = nd4j::math::nd4j_exp<T>(result[i]);
-						}
-
-#pragma omp simd reduction(+:sum)
-						for (int i = 0; i < length; i++) {
+                            result[i] = nd4j::math::nd4j_exp<T>(dx[i] - max);
 							sum += result[i];
 						}
 
@@ -936,24 +1401,16 @@ namespace simdOps {
 					}
 					else {
 
-#pragma omp simd reduction(max:max)
+#pragma omp simd reduction(maxT:max)
 						for (int i = 0; i < length; i++) {
 							max = nd4j::math::nd4j_max<T>(max, dx[i * elementWiseStride]);
 						}
 
-#pragma omp simd
+#pragma omp parallel for simd reduction(sumT:sum)
 						for (int i = 0; i < length; i++) {
-							result[i * resultElementWiseStride] = dx[i * elementWiseStride] - max;
-						}
-
-#pragma omp simd
-						for (int i = 0; i < length; i++) {
-							result[i * resultElementWiseStride] = nd4j::math::nd4j_exp<T>(result[i * resultElementWiseStride]);
-						}
-
-#pragma omp simd reduction(+:sum)
-						for (int i = 0; i < length; i++) {
-							sum += result[i * resultElementWiseStride];
+                            T r = nd4j::math::nd4j_exp<T>(dx[i * elementWiseStride] - max);
+                            result[i * resultElementWiseStride] = r;
+							sum += r;
 						}
 
 #pragma omp simd
@@ -987,7 +1444,7 @@ namespace simdOps {
 			T *result,
 			int *resultShapeBuffer,
 			T *extraParams,
-			int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager) {
+			int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 			int *shape = shape::shapeOf(xShapeBuffer);
 			int *stride = shape::stride(xShapeBuffer);
 			//iterate along rows
@@ -1015,7 +1472,7 @@ namespace simdOps {
 			__syncthreads();
 
 			//after subtracting the row wise maxes take the exp
-			functions::transform::Transform<T>::template transformCuda<simdOps::Exp<T>>(result, resultShapeBuffer, extraParams, result, resultShapeBuffer, allocationPointer, reductionPointer, manager);
+			functions::transform::Transform<T>::template transformCuda<simdOps::Exp<T>>(result, resultShapeBuffer, extraParams, result, resultShapeBuffer, allocationPointer, reductionPointer, manager, tadShapeInfo, tadOffsets);
 			__syncthreads();
 
 			//take the sum for the exponential
@@ -1026,7 +1483,8 @@ namespace simdOps {
 			functions::scalar::ScalarTransform<T>::template transformCuda<simdOps::Divide<T>>(maxResult, result, resultShapeBuffer, extraParams, result, resultShapeBuffer, allocationPointer, manager);
 			__syncthreads();
 
-			functions::transform::Transform<T>::template transformCuda<simdOps::Log<T>>(result, resultShapeBuffer, extraParams, result, resultShapeBuffer, allocationPointer, reductionPointer, manager);
+			functions::transform::Transform<T>::template transformCuda<simdOps::Log<T>>(result, resultShapeBuffer, extraParams, result, resultShapeBuffer, allocationPointer, reductionPointer, manager, tadShapeInfo, tadOffsets);
+
 		}
 #endif
 
@@ -1036,7 +1494,7 @@ namespace simdOps {
 			int *xShapeBuffer,
 			T *result,
 			int *resultShapeBuffer,
-			T *extraParams, int *tadShapeInfo, int *tadOffsets) {
+			T *extraParams, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 
 			if (shape::isMatrix(xShapeBuffer, 2)) {
 				int *shape = shape::shapeOf(xShapeBuffer);
@@ -1056,7 +1514,7 @@ namespace simdOps {
 					nullptr, nullptr);
 
 				//subtract max of each row
-				functions::broadcast::Broadcast<T>::template exec<simdOps::Subtract<T>>(result, resultShapeBuffer, maxResult.data(), maxResultShapeBuffer, result, resultShapeBuffer, dimension, 1,
+				functions::broadcast::Broadcast<T>::template exec<simdOps::Subtract<T>>(dx, xShapeBuffer, maxResult.data(), maxResultShapeBuffer, result, resultShapeBuffer, dimension, 1,
 					nullptr, nullptr, nullptr, nullptr);
 
 				//after subtracting the row wise maxes take the exp
@@ -1082,15 +1540,14 @@ namespace simdOps {
 				int elementWiseStride = shape::elementWiseStride(xShapeBuffer);
 				int length = shape::length(xShapeBuffer);
 				if (elementWiseStride == 1) {
-#pragma omp simd reduction(max:max)
+#pragma omp simd reduction(maxT:max)
 					for (int i = 0; i < length; i++) {
 						max = nd4j::math::nd4j_max<T>(max, result[i]);
 					}
 
-#pragma omp simd reduction(+:sum)
+#pragma omp simd reduction(sumT:sum)
 					for (int i = 0; i < length; i++) {
-						result[i] -= max;
-						result[i] = nd4j::math::nd4j_exp<T>(result[i]);
+						result[i] = nd4j::math::nd4j_exp<T>(dx[i] - max);
 						sum += result[i];
 					}
 
@@ -1101,15 +1558,14 @@ namespace simdOps {
 					}
 				}
 				else if (elementWiseStride > 1) {
-#pragma omp simd reduction(max:max)
+#pragma omp simd reduction(maxT:max)
 					for (int i = 0; i < length; i++) {
 						max = nd4j::math::nd4j_max<T>(max, result[i * elementWiseStride]);
 					}
 
-#pragma omp simd reduction(+:sum)
+#pragma omp simd reduction(sumT:sum)
 					for (int i = 0; i < length; i++) {
-						result[i * elementWiseStride] -= max;
-						result[i * elementWiseStride] = nd4j::math::nd4j_exp<T>(result[i * elementWiseStride]);
+						result[i * elementWiseStride] = nd4j::math::nd4j_exp<T>(dx[i * elementWiseStride] - max);
 						sum += result[i * elementWiseStride];
 					}
 
@@ -1147,8 +1603,7 @@ namespace simdOps {
 			T *result,
 			int *resultShapeBuffer,
 			T *extraParams,
-			int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager) {
-
+			int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 
 			int *shape = shape::shapeOf(xShapeBuffer);
 			__shared__ T maxResult;
@@ -1180,7 +1635,7 @@ namespace simdOps {
 			__syncthreads();
 
 			//after subtracting the row wise maxes take the exp
-			functions::transform::Transform<T>::template transformCuda<simdOps::Exp<T>>(result, resultShapeBuffer, extraParams, result, resultShapeBuffer, allocationPointer, reductionPointer, manager);
+			functions::transform::Transform<T>::template transformCuda<simdOps::Exp<T>>(result, resultShapeBuffer, extraParams, result, resultShapeBuffer, allocationPointer, reductionPointer, manager, tadShapeInfo, tadOffsets);
 			__syncthreads();
 
 			//take the sum for the exponential
@@ -1199,6 +1654,7 @@ namespace simdOps {
 			else {
 				printf("Non element wise stride not supported right now\n");
 			}
+
 		}
 #endif
 
@@ -1208,7 +1664,7 @@ namespace simdOps {
 			int *xShapeBuffer,
 			T *result,
 			int *resultShapeBuffer,
-			T *extraParams, int *tadShapeInfo, int *tadOffsets) {
+			T *extraParams, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 			if (shape::isMatrix(xShapeBuffer, 2)) {
 				int *shape = shape::shapeOf(xShapeBuffer);
 
@@ -1241,21 +1697,20 @@ namespace simdOps {
 					1, nullptr, nullptr);
 
 				//divide by the sum
-				functions::broadcast::Broadcast<T>::template exec<simdOps::Divide<T>>(result, resultShapeBuffer, maxResult.data(), maxResultShapeBuffer, result, resultShapeBuffer, dimension, 1, nullptr, nullptr,
-                                                                                      nullptr, nullptr);
+				functions::broadcast::Broadcast<T>::template exec<simdOps::Divide<T>>(result, resultShapeBuffer, maxResult.data(), maxResultShapeBuffer, result, resultShapeBuffer, dimension, 1, nullptr, nullptr, nullptr, nullptr);
 
 				if (resultEleStide >= 1) {
 					if (resultEleStide == 1) {
 #pragma omp simd
 						for (int i = 0; i < len; i++) {
-							result[i] = result[i] * (1 - result[i]);
+							result[i] = result[i] * ((T) 1.0f - result[i]);
 						}
 
 					}
 					else {
 #pragma omp simd
 						for (int i = 0; i < len; i++) {
-							result[i * resultEleStide] = result[i * resultEleStide] * (1 - result[i * resultEleStide]);
+							result[i * resultEleStide] = result[i * resultEleStide] * ((T) 1.0f - result[i * resultEleStide]);
 						}
 
 					}
@@ -1270,7 +1725,7 @@ namespace simdOps {
                     for (int i = 0; i < len; i++) {
                         shape::ind2subC(zRank,zShape, i, zCoord);
                         Nd4jIndex zOffset = shape::getOffset(0, zShape, zStride, zCoord, zRank);
-                        result[zOffset] = result[zOffset] * (1 - result[zOffset]);
+                        result[zOffset] = result[zOffset] * ((T) 1.0f - result[zOffset]);
                     }
                 }
 
@@ -1285,12 +1740,12 @@ namespace simdOps {
 				int length = shape::length(xShapeBuffer);
 				if (elementWiseStride == 1) {
 
-#pragma omp simd reduction(max:max)
+#pragma omp simd reduction(maxT:max)
 					for (int i = 0; i < length; i++) {
 						max = nd4j::math::nd4j_max<T>(max, result[i]);
 					}
 
-#pragma omp simd reduction(+:sum)
+#pragma omp simd reduction(sumT:sum)
 					for (int i = 0; i < length; i++) {
 						result[i] -= max;
 						result[i] = nd4j::math::nd4j_exp<T>(result[i]);
@@ -1304,17 +1759,17 @@ namespace simdOps {
 
 #pragma omp simd
                     for (int i = 0; i < length; i++) {
-                        result[i] = result[i] * (1 - result[i]);
+                        result[i] = result[i] * ((T) 1.0f - result[i]);
                     }
                 } else if (elementWiseStride >= 1) {
 
-#pragma omp simd reduction(max:max)
+#pragma omp simd reduction(maxT:max)
 					for (int i = 0; i < length; i++) {
 						max = nd4j::math::nd4j_max<T>(max, result[i * elementWiseStride]);
 					}
 
 
-#pragma omp simd reduction(+:sum)
+#pragma omp simd reduction(sumT:sum)
 					for (int i = 0; i < length; i++) {
 						result[i * elementWiseStride] -= max;
 						result[i * elementWiseStride] = nd4j::math::nd4j_exp<T>(result[i * elementWiseStride]);
@@ -1328,7 +1783,7 @@ namespace simdOps {
 
 #pragma omp simd
 					for (int i = 0; i < length; i++) {
-						result[i * elementWiseStride] = result[i * elementWiseStride] * (1 - result[i * elementWiseStride]);
+						result[i * elementWiseStride] = result[i * elementWiseStride] * ((T) 1.0f - result[i * elementWiseStride]);
 					}
 				} else {
                     printf("non-ews access on row not implemented yet");
@@ -1582,7 +2037,7 @@ namespace simdOps {
 			int *xShapeBuffer,
 			T *result,
 			int *resultShapeBuffer,
-			T *extraParams, int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager) {
+			T *extraParams, int *allocationPointer, T *reductionPointer, UnifiedSharedMemory *manager, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
 			// FIXME: MAX_DIMENSION is lower then FP16 frame
 			if (extraParams == nullptr || (int) extraParams[0] == MAX_DIMENSION) {
 				doAllCuda(dx, xShapeBuffer, result, resultShapeBuffer, extraParams, allocationPointer, reductionPointer, manager);
@@ -1595,10 +2050,10 @@ namespace simdOps {
 			int *xShapeBuffer,
 			T *result,
 			int *resultShapeBuffer,
-			T *extraParams, int *tadShapeInfo, int *tadOffsets) {
-
-			if (extraParams == nullptr || extraParams[0] == 0 ||
-				(extraParams[0] == 1 && extraParams[1] == MAX_DIMENSION)) {
+			T *extraParams, int *tadShapeInfo, Nd4jIndex *tadOffsets) {
+			//FIXME: this op should be moved to CustomOps
+			if (extraParams == nullptr || (int)extraParams[0] == 0 ||
+				((int)extraParams[0] == 1 && (int)extraParams[1] == MAX_DIMENSION)) {
 				doAll(dx, xShapeBuffer, result, resultShapeBuffer, extraParams);
 			}
 			else if (shape::isVector(xShapeBuffer)) {
@@ -1714,17 +2169,18 @@ namespace simdOps {
                 for (int i = 0; i < dimensionLength; i++) {
                     dimension[i] = (int) extraParams[i + 1];
                 }
-/*
-                shape::TAD tad(xShapeBuffer, dimension, dimensionLength);
-                tad.createTadOnlyShapeInfo();
-                tad.createOffsets();
-*/
-//                int tads = tad.numTads;
                 //decompose in to several sub tads after
                 //moving all dimensions (in sorted order)
                 //to the back.
-                //permuted version of the x shape info for setting up the tad problem
-                int *tadShapeShapeInfo = tadShapeInfo;
+                //permuted version of the x shape info for setting up the tad problem				
+				int *tadShapeShapeInfo = tadShapeInfo;
+				shape::TAD tad (xShapeBuffer, dimension, dimensionLength);
+				if(tadShapeInfo==nullptr) {
+					tad.createTadOnlyShapeInfo();
+					tad.createOffsets();
+					tadShapeShapeInfo = tad.tadOnlyShapeInfo;
+					tadOffsets = tad.tadOffsets;
+				}						                                				
 
                 int tadLength = shape::tadLength(xShapeBuffer, dimension, dimensionLength);
                 int tads = shape::length(xShapeBuffer) / tadLength;

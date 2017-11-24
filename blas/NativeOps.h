@@ -5,6 +5,7 @@
 #ifndef NATIVEOPERATIONS_NATIVEOPS_H
 #define NATIVEOPERATIONS_NATIVEOPS_H
 
+
 #ifndef thread_local
 # if __STDC_VERSION__ >= 201112 && !defined __STDC_NO_THREADS__
 #  define thread_local _Thread_local
@@ -38,16 +39,256 @@
 #endif
 #include <dll.h>
 
+/*
 int tad_threshold = 1;
 int element_threshold = 32;
 
 bool debug = false;
-bool verbose = true;
+bool verbose = false;
+*/
 
+#include <array/ShapeList.h>
+#include <cblas.h>
 
+#ifdef _WIN32
+#define CUBLASWINAPI __stdcall
+#else
+#define CUBLASWINAPI 
+#endif
 
 class ND4J_EXPORT NativeOps {
 
+    typedef enum{
+        CUBLAS_STATUS_SUCCESS         =0,
+        CUBLAS_STATUS_NOT_INITIALIZED =1,
+        CUBLAS_STATUS_ALLOC_FAILED    =3,
+        CUBLAS_STATUS_INVALID_VALUE   =7,
+        CUBLAS_STATUS_ARCH_MISMATCH   =8,
+        CUBLAS_STATUS_MAPPING_ERROR   =11,
+        CUBLAS_STATUS_EXECUTION_FAILED=13,
+        CUBLAS_STATUS_INTERNAL_ERROR  =14,
+        CUBLAS_STATUS_NOT_SUPPORTED   =15,
+        CUBLAS_STATUS_LICENSE_ERROR   =16
+    } cublasStatus_t;
+
+    typedef enum {
+        CUBLAS_OP_N=0,  
+        CUBLAS_OP_T=1,  
+        CUBLAS_OP_C=2  
+    } cublasOperation_t;
+
+    struct cublasContext;
+    typedef struct cublasContext *cublasHandle_t;
+
+    typedef enum
+    {
+	    CUDA_R_16F= 2,  /* real as a half */
+	    CUDA_C_16F= 6,  /* complex as a pair of half numbers */
+	    CUDA_R_32F= 0,  /* real as a float */
+	    CUDA_C_32F= 4,  /* complex as a pair of float numbers */
+	    CUDA_R_64F= 1,  /* real as a double */
+	    CUDA_C_64F= 5,  /* complex as a pair of double numbers */
+	    CUDA_R_8I = 3,  /* real as a signed char */
+	    CUDA_C_8I = 7,  /* complex as a pair of signed char numbers */
+	    CUDA_R_8U = 8,  /* real as a unsigned char */
+	    CUDA_C_8U = 9,  /* complex as a pair of unsigned char numbers */
+	    CUDA_R_32I= 10, /* real as a signed int */
+	    CUDA_C_32I= 11, /* complex as a pair of signed int numbers */
+	    CUDA_R_32U= 12, /* real as a unsigned int */
+	    CUDA_C_32U= 13  /* complex as a pair of unsigned int numbers */
+    } cublasDataType_t; 
+
+    typedef void (*CblasSgemv)(CBLAS_ORDER Layout,
+                 CBLAS_TRANSPOSE TransA, int M, int N,
+                 float alpha, float *A, int lda,
+                 float *X, int incX, float beta,
+                 float *Y, int incY);
+
+    typedef void (*CblasDgemv)(CBLAS_ORDER Layout,
+                 CBLAS_TRANSPOSE TransA, int M, int N,
+                 double alpha, double *A, int lda,
+                 double *X, int incX, double beta,
+                 double *Y, int incY);
+
+
+    typedef void (*CblasSgemm)(CBLAS_ORDER Layout, CBLAS_TRANSPOSE TransA,
+                     CBLAS_TRANSPOSE TransB, int M, int N,
+                     int K, float alpha, float *A,
+                     int lda, float *B, int ldb,
+                     float beta, float *C, int ldc);
+
+    typedef void (*CblasDgemm)(CBLAS_ORDER Layout, CBLAS_TRANSPOSE TransA,
+                     CBLAS_TRANSPOSE TransB, int M, int N,
+                     int K, double alpha, double *A,
+                     int lda, double *B, int ldb,
+                     double beta, double *C, int ldc);
+
+    typedef void (*CblasSgemmBatch)(CBLAS_ORDER Layout, CBLAS_TRANSPOSE *TransA_Array,
+                           CBLAS_TRANSPOSE *TransB_Array, int *M_Array, int *N_Array,
+                           int *K_Array, float *alpha_Array, float **A_Array,
+                           int *lda_Array, float **B_Array, int *ldb_Array,
+                           float *beta_Array, float **C_Array, int *ldc_Array,
+                           int group_count, int *group_size);
+
+    typedef void (*CblasDgemmBatch)(CBLAS_ORDER Layout, CBLAS_TRANSPOSE *TransA_Array,
+                           CBLAS_TRANSPOSE *TransB_Array, int *M_Array, int *N_Array,
+                           int *K_Array, double *alpha_Array, double **A_Array,
+                           int *lda_Array, double **B_Array, int* ldb_Array,
+                           double *beta_Array, double **C_Array, int *ldc_Array,
+                           int group_count, int *group_size);
+
+    typedef cublasStatus_t (CUBLASWINAPI *CublasSgemv)(cublasHandle_t handle, 
+                                                      cublasOperation_t trans, 
+                                                      int m, 
+                                                      int n, 
+                                                      float *alpha, /* host or device pointer */
+                                                      float *A, 
+                                                      int lda, 
+                                                      float *x, 
+                                                      int incx, 
+                                                      float *beta,  /* host or device pointer */
+                                                      float *y, 
+                                                      int incy);  
+ 
+    typedef cublasStatus_t (CUBLASWINAPI *CublasDgemv)(cublasHandle_t handle, 
+                                                      cublasOperation_t trans, 
+                                                      int m,
+                                                      int n,
+                                                      double *alpha, /* host or device pointer */ 
+                                                      double *A,
+                                                      int lda,
+                                                      double *x,
+                                                      int incx,
+                                                      double *beta, /* host or device pointer */
+                                                      double *y, 
+                                                      int incy);
+
+    typedef cublasStatus_t (CUBLASWINAPI *CublasHgemm)(cublasHandle_t handle, 
+                                                      cublasOperation_t transa,
+                                                      cublasOperation_t transb, 
+                                                      int m,
+                                                      int n,
+                                                      int k,
+                                                      __half *alpha, /* host or device pointer */  
+                                                      __half *A, 
+                                                      int lda,
+                                                      __half *B,
+                                                      int ldb, 
+                                                      __half *beta, /* host or device pointer */  
+                                                      __half *C,
+                                                      int ldc);             
+
+    typedef cublasStatus_t (CUBLASWINAPI *CublasSgemm)(cublasHandle_t handle, 
+                                                      cublasOperation_t transa,
+                                                      cublasOperation_t transb, 
+                                                      int m,
+                                                      int n,
+                                                      int k,
+                                                      float *alpha, /* host or device pointer */  
+                                                      float *A, 
+                                                      int lda,
+                                                      float *B,
+                                                      int ldb, 
+                                                      float *beta, /* host or device pointer */  
+                                                      float *C,
+                                                      int ldc);
+    
+    typedef cublasStatus_t (CUBLASWINAPI *CublasDgemm)(cublasHandle_t handle, 
+                                                      cublasOperation_t transa,
+                                                      cublasOperation_t transb, 
+                                                      int m,
+                                                      int n,
+                                                      int k,
+                                                      double *alpha, /* host or device pointer */  
+                                                      double *A, 
+                                                      int lda,
+                                                      double *B,
+                                                      int ldb, 
+                                                      double *beta, /* host or device pointer */  
+                                                      double *C,
+                                                      int ldc);
+
+    typedef cublasStatus_t (CUBLASWINAPI *CublasSgemmEx)(cublasHandle_t handle, 
+                                                      cublasOperation_t transa,
+                                                      cublasOperation_t transb, 
+                                                      int m,
+                                                      int n,
+                                                      int k,
+                                                      float *alpha, /* host or device pointer */  
+                                                      void *A, 
+                                                      cublasDataType_t Atype,
+                                                      int lda,
+                                                      void *B,
+                                                      cublasDataType_t Btype,
+                                                      int ldb, 
+                                                      float *beta, /* host or device pointer */  
+                                                      void *C,
+                                                      cublasDataType_t Ctype,
+                                                      int ldc); 
+
+    typedef cublasStatus_t (CUBLASWINAPI *CublasHgemmBatched)(cublasHandle_t handle,
+                                                          cublasOperation_t transa,
+                                                          cublasOperation_t transb, 
+                                                          int m,
+                                                          int n,
+                                                          int k,
+                                                          __half *alpha,  /* host or device pointer */  
+                                                          __half *Aarray[], 
+                                                          int lda,
+                                                          __half *Barray[],
+                                                          int ldb, 
+                                                          __half *beta,   /* host or device pointer */  
+                                                          __half *Carray[],
+                                                          int ldc,
+                                                          int batchCount);
+
+    typedef cublasStatus_t (CUBLASWINAPI *CublasSgemmBatched)(cublasHandle_t handle,
+                                                          cublasOperation_t transa,
+                                                          cublasOperation_t transb, 
+                                                          int m,
+                                                          int n,
+                                                          int k,
+                                                          float *alpha,  /* host or device pointer */  
+                                                          float *Aarray[], 
+                                                          int lda,
+                                                          float *Barray[],
+                                                          int ldb, 
+                                                          float *beta,   /* host or device pointer */  
+                                                          float *Carray[],
+                                                          int ldc,
+                                                          int batchCount);
+
+    typedef cublasStatus_t (CUBLASWINAPI *CublasDgemmBatched)(cublasHandle_t handle,
+                                                          cublasOperation_t transa,
+                                                          cublasOperation_t transb, 
+                                                          int m,
+                                                          int n,
+                                                          int k,
+                                                          double *alpha,  /* host or device pointer */ 
+                                                          double *Aarray[], 
+                                                          int lda,
+                                                          double *Barray[],
+                                                          int ldb, 
+                                                          double *beta,  /* host or device pointer */ 
+                                                          double *Carray[],
+                                                          int ldc,
+                                                          int batchCount);
+    CblasSgemv cblasSgemv;
+    CblasDgemv cblasDgemv;
+    CblasSgemm cblasSgemm;
+    CblasDgemm cblasDgemm;
+    CblasSgemmBatch cblasSgemmBatch;
+    CblasDgemmBatch cblasDgemmBatch;
+
+    CublasSgemv cublasSgemv;
+    CublasDgemv cublasDgemv;
+    CublasHgemm cublasHgemm;
+    CublasSgemm cublasSgemm;
+    CublasDgemm cublasDgemm;
+    CublasSgemmEx cublasSgemmEx;
+    CublasHgemmBatched cublasHgemmBatched;
+    CublasSgemmBatched cublasSgemmBatched;
+    CublasDgemmBatched cublasDgemmBatched;
 
 public:
 
@@ -304,6 +545,59 @@ public:
                              int *resultShapeInfoBuffer,
                              int *dimension,
                              int dimensionLength);
+
+    void execReduce3AllDouble(Nd4jPointer *extraPointers,
+                             int opNum,
+                             double *x,
+                             int *xInfo,
+                             double *extraParamsVals,
+                             double *y,
+                             int *yInfo,
+                             double *result,
+                             int *resultShapeInfoBuffer,
+                             int *dimension,
+                             int dimensionLength,
+                             int *xTadShapeInfo,
+                             Nd4jIndex *xOffsets,
+                             int *yTadShapeInfo,
+                             Nd4jIndex *yOffsets);
+
+    void execReduce3AllFloat(Nd4jPointer *extraPointers,
+                              int opNum,
+                              float *x,
+                              int *xInfo,
+                              float *extraParamsVals,
+                              float *y,
+                              int *yInfo,
+                              float *result,
+                              int *resultShapeInfoBuffer,
+                              int *dimension,
+                              int dimensionLength,
+                              int *xTadShapeInfo,
+                             Nd4jIndex *xOffsets,
+                              int *yTadShapeInfo,
+                             Nd4jIndex *yOffsets);
+
+    void execReduce3AllHalf(Nd4jPointer *extraPointers,
+                              int opNum,
+                              float16 *x,
+                              int *xInfo,
+                              float16 *extraParamsVals,
+                              float16 *y,
+                              int *yInfo,
+                              float16 *result,
+                              int *resultShapeInfoBuffer,
+                              int *dimension,
+                              int dimensionLength,
+                              int *xTadShapeInfo,
+                            Nd4jIndex *xOffsets,
+                              int *yTadShapeInfo,
+                            Nd4jIndex *yOffsets);
+
+
+
+
+
     /**
      *
      * @param opNum
@@ -1493,12 +1787,79 @@ public:
             Nd4jPointer *tadPointers,
             Nd4jPointer *offsetPointers);
 
+
+    void specialConcatFloat(
+            Nd4jPointer *extraPointers,
+            int dimension,
+            int numArrays,
+            Nd4jPointer *data,
+            Nd4jPointer *inputShapeInfo,
+            float *result,
+            int *resultShapeInfo, Nd4jPointer *tadPointers, Nd4jPointer *offsetPointers);
+/**
+    * Concatneate multi array of the same shape together
+    * along a particular dimension
+    */
+    void specialConcatDouble(
+            Nd4jPointer *extraPointers,
+            int dimension,
+            int numArrays,
+            Nd4jPointer *data,
+            Nd4jPointer *inputShapeInfo,
+            double *result,
+            int *resultShapeInfo,
+            Nd4jPointer *tadPointers,
+            Nd4jPointer *offsetPointers);
+
+    /**
+     *
+     * @param extraPointers
+     * @param dimension
+     * @param numArrays
+     * @param data
+     * @param inputShapeInfo
+     * @param result
+     * @param resultShapeInfo
+     * @param tadPointers
+     * @param offsetPointers
+     */
+    void specialConcatHalf(
+            Nd4jPointer *extraPointers,
+            int dimension,
+            int numArrays,
+            Nd4jPointer *data,
+            Nd4jPointer *inputShapeInfo,
+            float16 *result,
+            int *resultShapeInfo,
+            Nd4jPointer *tadPointers,
+            Nd4jPointer *offsetPointers);
+
     /**
      * This method implementation exists only for cuda.
      * The other backends should have dummy method for JNI compatibility reasons.
      */
     void initializeDevicesAndFunctions();
 
+    void initializeDevicesAndFunctions(Nd4jPointer *functions) {
+        initializeDevicesAndFunctions();
+
+        this->cblasSgemv = (CblasSgemv)functions[0];
+        this->cblasDgemv = (CblasDgemv)functions[1];
+        this->cblasSgemm = (CblasSgemm)functions[2];
+        this->cblasDgemm = (CblasDgemm)functions[3];
+        this->cblasSgemmBatch = (CblasSgemmBatch)functions[4];
+        this->cblasDgemmBatch = (CblasDgemmBatch)functions[5];
+
+        this->cublasSgemv = (CublasSgemv)functions[6];
+        this->cublasDgemv = (CublasDgemv)functions[7];
+        this->cublasHgemm = (CublasHgemm)functions[8];
+        this->cublasSgemm = (CublasSgemm)functions[9];
+        this->cublasDgemm = (CublasDgemm)functions[10];
+        this->cublasSgemmEx = (CublasSgemmEx)functions[11];
+        this->cublasHgemmBatched = (CublasHgemmBatched)functions[12];
+        this->cublasSgemmBatched = (CublasSgemmBatched)functions[13];
+        this->cublasDgemmBatched = (CublasDgemmBatched)functions[14];
+    }
 
     /**
      * This method acquires memory chunk of requested size on host side
@@ -1773,7 +2134,7 @@ public:
                           int *dimension,
                           int dimensionLength,
                           int *targetBuffer,
-                          int *offsetsBuffer);
+                          Nd4jIndex *offsetsBuffer);
 
     /*
      * PullRow special op
@@ -1801,9 +2162,9 @@ public:
                       int n,
                       int *indexes,
                       int *tadShapeInfo,
-                      int *tadOffsets,
+                      Nd4jIndex *tadOffsets,
                       int *zTadShapeInfo,
-                      int *zTadOffsets);
+                      Nd4jIndex *zTadOffsets);
 
     /**
      *
@@ -1827,9 +2188,9 @@ public:
                        int n,
                        int *indexes,
                        int *tadShapeInfo,
-                       int *tadOffsets,
+                       Nd4jIndex *tadOffsets,
                        int *zTadShapeInfo,
-                       int *zTadOffsets);
+                       Nd4jIndex *zTadOffsets);
 
     /**
      *
@@ -1853,9 +2214,9 @@ public:
                         int n,
                         int *indexes,
                         int *tadShapeInfo,
-                        int *tadOffsets,
+                        Nd4jIndex *tadOffsets,
                         int *zTadShapeInfo,
-                        int *zTadOffsets);
+                        Nd4jIndex *zTadOffsets);
 
     /**
      * Array averaging op
@@ -1907,6 +2268,26 @@ public:
                        int n,
                        Nd4jIndex length,
                        bool propagate);
+
+
+    void accumulateHalf(Nd4jPointer *extras,
+                          Nd4jPointer *dx,
+                          float16 *dz,
+                          int n,
+                          Nd4jIndex length);
+
+
+    void accumulateFloat(Nd4jPointer *extras,
+                          Nd4jPointer *dx,
+                          float *dz,
+                          int n,
+                          Nd4jIndex length);
+
+    void accumulateDouble(Nd4jPointer *extras,
+                       Nd4jPointer *dx,
+                       double *dz,
+                       int n,
+                       Nd4jIndex length);
 
 
     /**
@@ -2013,7 +2394,7 @@ public:
      * @param dstType
      * @param z
      */
-    void convertTypes(Nd4jPointer *extras, int srcType, Nd4jPointer x, long N, int dstType, Nd4jPointer z);
+    void convertTypes(Nd4jPointer *extras, int srcType, Nd4jPointer x, Nd4jIndex N, int dstType, Nd4jPointer z);
 
 
     /**
@@ -2668,7 +3049,7 @@ public:
                                       int *dimension,
                                       int dimensionLength,
                                       int *tadShapeInfo,
-                                      int *tadOffsets,
+                                      Nd4jIndex *tadOffsets,
                                       float *extraA,
                                       float *extraB,
                                       float scalarA,
@@ -2702,6 +3083,15 @@ public:
     Nd4jPointer numpyFromFile(std::string path);
 
     /**
+     * This method releases pointer.
+     *
+     * PLEASE NOTE: This method shouldn't be ever called for anything but numpy arrays created from FILE
+     *
+     * @param npyArray
+     */
+    void releaseNumpy(Nd4jPointer npyArray);
+
+    /**
      * Return the length of a shape buffer
      * based on the pointer
      * @param buffer  the buffer pointer to check
@@ -2725,9 +3115,125 @@ public:
    * @return the pointer for the given address
    */
 
-    Nd4jPointer pointerForAddress(long address);
+    Nd4jPointer pointerForAddress(Nd4jIndex address);
+
+    /**
+     * This method takes single N-dimensional tensor, and copies its TADs to target arrays
+     *
+     * @param x
+     * @param xShapeInfo
+     * @param targets
+     * @param zShapeInfo
+     * @return
+     */
+    void tearDouble(Nd4jPointer *extraPointers, double *x, int *xShapeInfo, Nd4jPointer *targets, int *zShapeInfo, int *tadShapeInfo, Nd4jIndex *tadOffsets);
+
+    /**
+     * This method takes single N-dimensional tensor, and copies its TADs to target arrays
+     *
+     * @param x
+     * @param xShapeInfo
+     * @param targets
+     * @param zShapeInfo
+     * @return
+     */
+    void tearFloat(Nd4jPointer *extraPointers, float *x, int *xShapeInfo, Nd4jPointer *targets, int *zShapeInfo, int *tadShapeInfo, Nd4jIndex *tadOffsets);
+
+    /**
+     * This method takes single N-dimensional tensor, and copies its TADs to target arrays
+     *
+     * @param x
+     * @param xShapeInfo
+     * @param targets
+     * @param zShapeInfo
+     * @return
+     */
+    void tearHalf(Nd4jPointer *extraPointers, float16 *x, int *xShapeInfo, Nd4jPointer *targets, int *zShapeInfo, int *tadShapeInfo, Nd4jIndex *tadOffsets);
 
 
+    Nd4jIndex encodeBitmapFloat(Nd4jPointer *extraPointers, float *dx, Nd4jIndex N, int *dz, float threshold);
+
+    Nd4jIndex encodeBitmapDouble(Nd4jPointer *extraPointers, double *dx, Nd4jIndex N, int *dz, float threshold);
+
+    Nd4jIndex encodeBitmapHalf(Nd4jPointer *extraPointers, float16 *dx, Nd4jIndex N, int *dz, float threshold);
+
+    void decodeBitmapFloat(Nd4jPointer *extraPointers, void *dx, Nd4jIndex N, float *dz);
+
+    void decodeBitmapDouble(Nd4jPointer *extraPointers, void *dx, Nd4jIndex N, double *dz);
+
+    void decodeBitmapHalf(Nd4jPointer *extraPointers, void *dx, Nd4jIndex N, float16 *dz);
+
+
+    void encodeThresholdP1Double(Nd4jPointer *extraPointers, double *dx, Nd4jIndex N, int *dz, float threshold);
+
+    void encodeThresholdP1Half(Nd4jPointer *extraPointers, float16 *dx, Nd4jIndex N, int *dz, float threshold);
+
+    void encodeThresholdP1Float(Nd4jPointer *extraPointers, float *dx, Nd4jIndex N, int *dz, float threshold);
+
+
+    void encodeThresholdP2Int(Nd4jPointer *extraPointers, int *dx, Nd4jIndex N, int *dz);
+
+
+    void encodeThresholdP3Float(Nd4jPointer *extraPointers, float *dx, int *offsets, Nd4jIndex N, int *dz);
+
+    void encodeThresholdP3Double(Nd4jPointer *extraPointers, double *dx, int *offsets, Nd4jIndex N, int *dz);
+
+    void encodeThresholdP3Half(Nd4jPointer *extraPointers, float16 *dx, int *offsets, Nd4jIndex N, int *dz);
+
+
+    void decodeThresholdFloat(Nd4jPointer *extraPointers, void *dx, Nd4jIndex N, float *dz);
+
+    void decodeThresholdDouble(Nd4jPointer *extraPointers, void *dx, Nd4jIndex N, double *dz);
+
+    void decodeThresholdHalf(Nd4jPointer *extraPointers, void *dx, Nd4jIndex N, float16 *dz);
+
+
+
+    void sortFloat(Nd4jPointer *extraPointers, float *x, int *xShapeInfo, bool descending);
+
+    void sortDouble(Nd4jPointer *extraPointers, double *x, int *xShapeInfo, bool descending);
+
+    void sortHalf(Nd4jPointer *extraPointers, float16 *x, int *xShapeInfo, bool descending);
+
+
+
+    void sortTadFloat(Nd4jPointer *extraPointers, float *x, int *xShapeInfo, int *dimension, int dimensionLength, int *tadShapeInfo, Nd4jIndex *tadOffsets, bool descending);
+
+    void sortTadDouble(Nd4jPointer *extraPointers, double *x, int *xShapeInfo, int *dimension, int dimensionLength, int *tadShapeInfo, Nd4jIndex *tadOffsets, bool descending);
+
+    void sortTadHalf(Nd4jPointer *extraPointers, float16 *x, int *xShapeInfo, int *dimension, int dimensionLength, int *tadShapeInfo, Nd4jIndex *tadOffsets, bool descending);
+
+
+    // special sort impl for sorting out COO indices and values
+    void sortCooIndicesFloat(Nd4jPointer *extraPointers, int *indices, float *values, Nd4jIndex length, int rank);
+
+    void sortCooIndicesDouble(Nd4jPointer *extraPointers, int *indices, double *values, Nd4jIndex length, int rank);
+
+    void sortCooIndicesHalf(Nd4jPointer *extraPointers, int *indices, float16 *values, Nd4jIndex length, int rank);
+
+
+    Nd4jIndex* mmapFile(Nd4jPointer *extraPointers, const char *fileName, Nd4jIndex length);
+
+    void munmapFile(Nd4jPointer *extraPointers, Nd4jIndex* ptrMap, Nd4jIndex length);
+
+
+    // flatbuffers execution
+    Nd4jPointer executeFlatGraphFloat(Nd4jPointer *extraPointers, Nd4jPointer flatBufferPointer);
+
+    // protobuf execution
+    Nd4jPointer executeProtoGraphFloat(Nd4jPointer *extraPointers, Nd4jPointer protoBufferPointer);
+    Nd4jPointer executeProtoGraphFloat(Nd4jPointer *extraPointers, const char *fileName);
+
+    const char* getAllCustomOps();
+
+    // customOp executioner
+    int execCustomOpFloat(Nd4jPointer* extraPointers, Nd4jIndex hash, Nd4jPointer* inputBuffers, Nd4jPointer* inputShapes, int numInputs, Nd4jPointer* outputBuffers, Nd4jPointer* outputShapes, int numOutputs, float* tArgs, int numTArgs, int *iArgs, int numIArgs, bool isInplace);
+    int execCustomOpDouble(Nd4jPointer* extraPointers, Nd4jIndex hash, Nd4jPointer* inputBuffers, Nd4jPointer* inputShapes, int numInputs, Nd4jPointer* outputBuffers, Nd4jPointer* outputShapes, int numOutputs, double* tArgs, int numTArgs, int *iArgs, int numIArgs, bool isInplace);
+    int execCustomOpHalf(Nd4jPointer* extraPointers, Nd4jIndex hash, Nd4jPointer* inputBuffers, Nd4jPointer* inputShapes, int numInputs, Nd4jPointer* outputBuffers, Nd4jPointer* outputShapes, int numOutputs, float16* tArgs, int numTArgs, int *iArgs, int numIArgs, bool isInplace);
+
+    Nd4jPointer* calculateOutputShapesFloat(Nd4jPointer* extraPointers, Nd4jIndex hash, Nd4jPointer* inputShapes, int numInputShapes, float* tArgs, int numTArgs, int *iArgs, int numIArgs);
+    Nd4jPointer* calculateOutputShapesHalf(Nd4jPointer* extraPointers, Nd4jIndex hash, Nd4jPointer* inputShapes, int numInputShapes, float16* tArgs, int numTArgs, int *iArgs, int numIArgs);
+    Nd4jPointer* calculateOutputShapesDouble(Nd4jPointer* extraPointers, Nd4jIndex hash, Nd4jPointer* inputShapes, int numInputShapes, double* tArgs, int numTArgs, int *iArgs, int numIArgs);
 };
 
 

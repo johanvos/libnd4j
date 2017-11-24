@@ -6,7 +6,7 @@ Native operations for nd4j. Build using cmake
 
 * GCC 4.9 or 5.x
 * CUDA 7.5 or 8.0 (if desired)
-* CMake 3.2
+* CMake 3.8 (as of Nov 2017, in near future will require 3.9)
 
 ### Additional build arguments
 
@@ -36,14 +36,14 @@ export ANDROID_NDK=/path/to/android-ndk/
 cd libnd4j
 bash buildnativeoperations.sh -platform android-xxx
 cd ../nd4j
-mvn clean install -Djavacpp.platform=android-xxx -DskipTests -pl '!:nd4j-cuda-8.0,!:nd4j-cuda-8.0-platform'
+mvn clean install -Djavacpp.platform=android-xxx -DskipTests -pl '!:nd4j-cuda-8.0,!:nd4j-cuda-8.0-platform,!:nd4j-tests'
 ```
 
 ### OSX
 
 Run ./setuposx.sh (Please ensure you have brew installed)
 
-See [macOSx10 (CPU only).md](macOSx10 (CPU only).md)
+See [macOSx10 CPU only.md](macOSx10%20%28CPU%20only%29.md)
 
 ### Linux
 
@@ -133,6 +133,17 @@ We can link with MKL either at build time, or at runtime with binaries initially
 export MKL_THREADING_LAYER=GNU
 export LD_PRELOAD=/usr/lib64/libgomp.so.1
 ```
+
+##Troubleshooting MKL
+
+Sometimes the above steps might not be all you need to do. Another additional step might be the need to 
+add:
+
+```bash
+export LD_LIBRARY_PATH=/opt/intel/lib/intel64/:/opt/intel/mkl/lib/intel64
+```
+This ensures that mkl will be found first and liked to.
+
 
 ## Packaging
 

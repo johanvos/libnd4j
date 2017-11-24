@@ -18,6 +18,7 @@ echo eval $CMAKE_COMMAND
 # some arguments don't have a corresponding value to go with it such
 # as in the --default example).
 # note: if this is set to > 0 the /etc/hosts part is not recognized ( may be a bug )
+PARALLEL="true"
 OS=
 CHIP=
 BUILD=
@@ -77,7 +78,6 @@ case $key in
 esac
 shift # past argument or value
 done
-
 HOST="generic"
 KERNEL="linux-x86_64"
 if [ "$(uname)" == "Darwin" ]; then
@@ -130,6 +130,58 @@ case "$OS" in
     export CMAKE_COMMAND="cmake -DCMAKE_TOOLCHAIN_FILE=cmake/android-x86.cmake"
     ;;
 
+    ios-x86_64)
+    LIBTYPE="static"
+    ARCH="x86-64"
+    if xcrun --sdk iphoneos --show-sdk-version &> /dev/null; then
+    export IOS_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+    else
+        export IOS_VERSION="10.3"
+    fi
+    XCODE_PATH="$(xcode-select --print-path)"
+    export IOS_SDK="$XCODE_PATH/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator$IOS_VERSION.sdk"
+    export CMAKE_COMMAND="cmake -DCMAKE_TOOLCHAIN_FILE=cmake/ios-x86_64.cmake --debug-trycompile"
+    ;;
+
+    ios-x86)
+    LIBTYPE="static"
+    ARCH="i386"
+    if xcrun --sdk iphoneos --show-sdk-version &> /dev/null; then
+    export IOS_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+    else
+        export IOS_VERSION="10.3"
+    fi
+    XCODE_PATH="$(xcode-select --print-path)"
+    export IOS_SDK="$XCODE_PATH/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator$IOS_VERSION.sdk"
+    export CMAKE_COMMAND="cmake -DCMAKE_TOOLCHAIN_FILE=cmake/ios-x86.cmake --debug-trycompile"
+    ;;
+
+    ios-arm64)
+    LIBTYPE="static"
+    ARCH="arm64"
+    if xcrun --sdk iphoneos --show-sdk-version &> /dev/null; then
+    export IOS_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+    else
+        export IOS_VERSION="10.3"
+    fi
+    XCODE_PATH="$(xcode-select --print-path)"
+    export IOS_SDK="$XCODE_PATH/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS$IOS_VERSION.sdk"
+    export CMAKE_COMMAND="cmake -DCMAKE_TOOLCHAIN_FILE=cmake/ios-arm64.cmake --debug-trycompile"
+    ;;
+
+    ios-arm)
+    LIBTYPE="static"
+    ARCH="armv7"
+    if xcrun --sdk iphoneos --show-sdk-version &> /dev/null; then
+    export IOS_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+    else
+        export IOS_VERSION="10.3"
+    fi
+    XCODE_PATH="$(xcode-select --print-path)"
+    export IOS_SDK="$XCODE_PATH/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS$IOS_VERSION.sdk"
+    export CMAKE_COMMAND="cmake -DCMAKE_TOOLCHAIN_FILE=cmake/ios-arm.cmake --debug-trycompile"
+    ;;
+
     ios-armv7)
     # change those 2 parameters and make sure the IOS_SDK exists
     export iPhoneOS="iPhoneOS"
@@ -148,9 +200,11 @@ case "$OS" in
     if [ "$CHIP" == "cuda" ]; then
         export CC=clang
         export CXX=clang++
+        PARALLEL="false"
     else
         export CC="$(ls -1 /usr/local/bin/gcc-? | head -n 1)"
         export CXX="$(ls -1 /usr/local/bin/g++-? | head -n 1)"
+        PARALLEL="true"
     fi
     ;;
 
@@ -159,9 +213,12 @@ case "$OS" in
     if [ "$CHIP" == "cuda" ]; then
         export CMAKE_COMMAND="cmake -G \"NMake Makefiles\""
         export MAKE_COMMAND="nmake"
+        PARALLEL="false"
     else
         export CMAKE_COMMAND="cmake -G \"MSYS Makefiles\""
         export MAKE_COMMAND="make"
+        PARALLEL="true"
+
     fi
     # Try some defaults for Visual Studio 2013 if user has not run vcvarsall.bat or something
     if [ -z "${VCINSTALLDIR:-}" ]; then
@@ -300,4 +357,8 @@ echo LIBRARY TYPE    = "${LIBTYPE}"
 mkbuilddir
 pwd
 eval $CMAKE_COMMAND  "$BLAS_ARG" "$ARCH_ARG" "$SHARED_LIBS_ARG"  "$BUILD_TYPE" "$PACKAGING_ARG" "$EXPERIMENTAL_ARG" "$CUDA_COMPUTE" -DDEV=FALSE -DMKL_MULTI_THREADED=TRUE ../..
-eval $MAKE_COMMAND && cd ../../..
+if [ "$PARALLEL" == "true" ]; then
+        eval $MAKE_COMMAND -j5 && cd ../../..
+    else
+        eval $MAKE_COMMAND && cd ../../..
+fi

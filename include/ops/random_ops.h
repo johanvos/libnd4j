@@ -77,10 +77,13 @@ namespace randomOps {
         no_exec_special_cuda
 
         method_XY
-        method_X
 
         random_def T op(Nd4jIndex idx, Nd4jIndex length, nd4j::random::RandomBuffer *helper, T *extraParams) {
-            return extraParams[0] < helper->relativeT<T>(idx) ? (T) 1.0 : (T) 0.0f;
+            return extraParams[0] >= helper->relativeT<T>(idx) ? (T) 1.0f : (T) 0.0f;
+        }
+
+        random_def T op(T valueX, Nd4jIndex idx, Nd4jIndex length, nd4j::random::RandomBuffer *helper, T *extraParams) {
+            return valueX >= helper->relativeT<T>(idx) ? (T) 1.0f : (T) 0.0f;
         }
     };
 
@@ -102,6 +105,27 @@ namespace randomOps {
         random_def T op(T valueX, Nd4jIndex idx, Nd4jIndex length, nd4j::random::RandomBuffer *helper, T *extraParams) {
             T randVal = helper->relativeT<T>(idx);
             return randVal >= extraParams[0] ? (T) 0.0f : valueX;
+        }
+    };
+
+    template<typename T>
+    class AlphaDropOut {
+    public:
+
+        no_exec_special
+        no_exec_special_cuda
+
+        method_idx
+        method_XY
+
+        // please note: prob is chance to retain original value
+        random_def T op(T valueX, Nd4jIndex idx, Nd4jIndex length, nd4j::random::RandomBuffer *helper, T *extraParams) {
+            T randVal = helper->relativeT<T>(idx);
+            // extraParams[0] == p
+            // [1] = a
+            // [2] = b
+            // [3] = alphaPrime
+            return randVal >= extraParams[0] ? (T) extraParams[1] * extraParams[3] + extraParams[2] : extraParams[1] * valueX  + extraParams[2];
         }
     };
 

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.2)
+cmake_minimum_required(VERSION 3.8)
 project(libnd4j)
 set( CMAKE_VERBOSE_MAKEFILE on)
 option(NATIVE "Optimize for build machine (might not work on others)" OFF)
@@ -6,8 +6,8 @@ set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 #ensure we create lib files
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS OFF)
 
-set(CMAKE_CXX_FLAGS_RELEASE  "-Wall -O3 -std=c++11 -fassociative-math -funsafe-math-optimizations")
-set(CMAKE_CXX_FLAGS_DEBUG "-Wall -g -O0 -std=c++11")
+set(CMAKE_CXX_FLAGS_RELEASE  " -O3 -std=c++11 -fassociative-math -funsafe-math-optimizations")
+set(CMAKE_CXX_FLAGS_DEBUG " -g -O0 -std=c++11")
 
 
 if(NATIVE)
@@ -21,13 +21,12 @@ endif()
 
 if (NOT DEFINED ENV{CLION_IDE})
     message("NOT CLION")
-    include_directories(include/ include/helpers include/loops include/ops include/types include/cnpy)
+    include_directories(blas/ include/ include/helpers include/loops include/graph include/ops include/types include/array include/cnpy)
     add_subdirectory(blas)
 endif ()
 
-
 if ($ENV{CLION_IDE})
-    add_subdirectory(tests)
+    add_subdirectory(tests_cpu)
 endif ()
 
 set (CMAKE_INSTALL_PREFIX $ENV{ND4J_HOME}/nd4j-native-parent/nd4j-native/src/main/resources)
@@ -93,6 +92,7 @@ elseif(DISTRIBUTION STREQUAL "CentOS")
   set(CPACK_PACKAGE_FILE_NAME ${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}.fc${RELEASE}.${CPACK_RPM_PACKAGE_ARCHITECTURE})
   set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/postinst")
   set(CPACK_RPM_POST_UNINSTALL_SCRIPT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/postrm")
+  set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "/usr/local/lib")
 
 endif()
 

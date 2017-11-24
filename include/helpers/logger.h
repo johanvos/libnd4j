@@ -5,15 +5,27 @@
 #ifndef LIBND4J_LOGGER_H
 #define LIBND4J_LOGGER_H
 
+#include <vector>
 #include <cstdarg>
+#include <Environment.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 #ifndef __CUDACC__
 
-#define nd4j_logger(FORMAT, ...) if (debug && verbose) nd4j::Logger::info(FORMAT, __VA_ARGS__);
+#define nd4j_debug(FORMAT, ...) if (nd4j::Environment::getInstance()->isDebug() && nd4j::Environment::getInstance()->isVerbose()) nd4j::Logger::info(FORMAT, __VA_ARGS__);
+#define nd4j_logger(FORMAT, ...) if (nd4j::Environment::getInstance()->isDebug() && nd4j::Environment::getInstance()->isVerbose()) nd4j::Logger::info(FORMAT, __VA_ARGS__);
+#define nd4j_verbose(FORMAT, ...) if (nd4j::Environment::getInstance()->isVerbose()) nd4j::Logger::info(FORMAT, __VA_ARGS__);
+#define nd4j_printf(FORMAT, ...) nd4j::Logger::info(FORMAT, __VA_ARGS__);
+#define nd4j_printv(FORMAT, VECTOR)     nd4j::Logger::printv(FORMAT, VECTOR);
 
 #else
 
+#define nd4j_debug(FORMAT, A, ...)
 #define nd4j_logger(FORMAT, A, ...)
+#define nd4j_verbose(FORMAT, ...)
+#define nd4j_printf(FORMAT, ...) nd4j::Logger::info(FORMAT, __VA_ARGS__);
+#define nd4j_printv(FORMAT, VECTOR)
 
 #endif
 
@@ -25,17 +37,14 @@ namespace nd4j {
 #ifdef __CUDACC__
         __host__
 #endif
-        static void info(const char *format, ...) {
-            va_list args;
-            va_start(args, format);
+        static void info(const char *format, ...);
 
-            vprintf(format, args);
-
-            va_end(args);
-
-            fflush(stdout);
-        }
+#ifdef __CUDACC__
+        __host__
+#endif
+        static void printv(const char *format, std::vector<int>& vec);
     };
+
 }
 
 

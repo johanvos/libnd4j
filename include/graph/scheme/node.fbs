@@ -1,0 +1,28 @@
+include "array.fbs";
+include "utils.fbs";
+
+namespace nd4j.graph;
+
+
+
+table FlatNode {
+    id:int; // unique id for this node
+    name:string; // literal id of this node (optional)
+    opType:OpType;
+    opNum:long;
+    input:[int]; // ID's of input nodes for this node !!! only used if inputPaired in unset !!!
+    inputPaired:[IntPair]; //
+    dataType:DataType; // to be removed
+    output:[int]; // ID's of connected nodes for this node
+    extraParams:[float]; // extra params for this op (if any)
+    extraInteger:[int]; // optional integer extra params
+    dimensions:[int]; // dimension for this operation
+    device:int; // default is -1, which means _auto_
+    scalar:float; // optional scalar. used in scalar ops & SummaryStats
+
+    // fields related to Scopes
+    scope_id:int; // unique scope id, where this op belongs to
+    scope_name:string; // literal scope id, where this op belongs to
+}
+
+root_type FlatNode;

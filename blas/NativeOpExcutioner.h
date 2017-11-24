@@ -16,10 +16,13 @@
 #include <loops/aggregates.h>
 #include <loops/random.h>
 #include <pointercast.h>
+#include <ops/specials.h>
+#include <ops/specials_sparse.h>
 /**
  * Native op executioner:
  *
  */
+
 template <typename T>
 class NativeOpExcutioner {
 public:
@@ -32,12 +35,7 @@ public:
      * @param result
      * @param resultShapeInfo
      */
-    static T execIndexReduceScalar(int opNum,
-                                   T *x,
-                                   int *xShapeInfo,
-                                   T *extraParams) {
-        return functions::indexreduce::IndexReduce<T>::execScalar(opNum, x,xShapeInfo,extraParams);
-    }
+    static T execIndexReduceScalar(int opNum, T *x, int *xShapeInfo, T *extraParams);
 
     /**
      *
@@ -59,18 +57,7 @@ public:
                                 int *dimension,
                                 int dimensionLength,
                                 int *tadShapeInfo,
-                                int *tadOffsets) {
-        functions::indexreduce::IndexReduce<T>::exec(opNum,
-                                                     x,
-                                                     xShapeInfo,
-                                                     extraParams,
-                                                     result,
-                                                     resultShapeInfoBuffer,
-                                                     dimension,
-                                                     dimensionLength,
-                                                     tadShapeInfo,
-                                                     tadOffsets);
-    }
+                                Nd4jIndex *tadOffsets);
 
     /**
      *
@@ -93,24 +80,9 @@ public:
                               int *dimension,
                               int dimensionLength,
                               int *tadOnlyShapeInfo,
-                              int *tadOffsets,
+                              Nd4jIndex *tadOffsets,
                               int *tadOnlyShapeInfoZ,
-                              int *tadOffsetsZ) {
-        functions::broadcast::Broadcast<T>::exec(opNum,
-                                                 x,
-                                                 xShapeInfo,
-                                                 y,
-                                                 yShapeInfo,
-                                                 result,
-                                                 resultShapeInfo,
-                                                 dimension,
-                                                 dimensionLength,
-                                                 tadOnlyShapeInfo,
-                                                 tadOffsets,
-                                                 tadOnlyShapeInfoZ,
-                                                 tadOffsetsZ);
-    }
-
+                              Nd4jIndex *tadOffsetsZ);
 
     /**
      *
@@ -131,19 +103,9 @@ public:
                                       int yStride,
                                       T *result,
                                       int resultStride,
-                                      T *extraParams, Nd4jIndex n) {
-        functions::pairwise_transforms::PairWiseTransform<T>::exec(opNum,
-                                                                   dx,
-                                                                   xStride,
-                                                                   y,
-                                                                   yStride,
-                                                                   result,
-                                                                   resultStride,
-                                                                   extraParams,
-                                                                   n);
-    }
+                                      T *extraParams, Nd4jIndex n);
 
-    /**
+  /**
   *
   * @param opNum
   * @param dx
@@ -162,29 +124,20 @@ public:
                                       int *yShapeInfo,
                                       T *result,
                                       int *resultShapeInfo,
-                                      T *extraParams) {
-        functions::pairwise_transforms::PairWiseTransform<T>::exec(opNum,
-                                                                   dx,
-                                                                   xShapeInfo,
-                                                                   y,
-                                                                   yShapeInfo,
-                                                                   result,
-                                                                   resultShapeInfo,
-                                                                   extraParams);
-    }
+                                      T *extraParams);
 
     /**
-*
-* @param opNum
-* @param dx
-* @param xStride
-* @param y
-* @param yStride
-* @param result
-* @param resultStride
-* @param extraParams
-* @param n
-*/
+    *
+    * @param opNum
+    * @param dx
+    * @param xStride
+    * @param y
+    * @param yStride
+    * @param result
+    * @param resultStride
+    * @param extraParams
+    * @param n
+    */
     static void execPairwiseTransform(int opNum,
                                       T *dx,
                                       int *xShapeInfo,
@@ -195,21 +148,7 @@ public:
                                       T *extraParams,
                                       int *xIndexes,
                                       int *yIndexes,
-                                      int *resultIndexes) {
-        functions::pairwise_transforms::PairWiseTransform<T>::exec(opNum,
-                                                                   dx,
-                                                                   xShapeInfo,
-                                                                   y,
-                                                                   yShapeInfo,
-                                                                   result,
-                                                                   resultShapeInfo,
-                                                                   extraParams,
-                                                                   xIndexes,
-                                                                   yIndexes,
-                                                                   resultIndexes);
-    }
-
-
+                                      int *resultIndexes);
 
     /**
      *
@@ -229,19 +168,7 @@ public:
                            int *dimension,
                            int dimensionLength,
                            int *tadShapeInfo,
-                           int *tadOffsets) {
-        functions::reduce::ReduceFunction<T>::exec(
-                opNum,
-                x,
-                xShapeInfo,
-                extraParams,
-                result,
-                resultShapeInfo,
-                dimension,
-                dimensionLength,
-                tadShapeInfo,
-                tadOffsets);
-    }
+                           Nd4jIndex *tadOffsets);
 
     /**
      *
@@ -254,13 +181,8 @@ public:
     static T execReduceScalar(int opNum,
                               T *x,
                               int *xShapeInfo,
-                              T *extraParams) {
-        return functions::reduce::ReduceFunction<T>::execScalar(
-                opNum,
-                x,
-                xShapeInfo,
-                extraParams);
-    }
+                              T *extraParams);
+
     /**
      *
      * @param opNum
@@ -278,18 +200,7 @@ public:
                             T *extraParamsVals,
                             T *y,
                             int *yShapeInfo,
-                            T *result, int *resultShapeInfo) {
-        functions::reduce3::Reduce3<T>::exec(opNum,
-                                             x,
-                                             xShapeInfo,
-                                             extraParamsVals,
-                                             y,
-                                             yShapeInfo,
-                                             result,
-                                             resultShapeInfo,
-                                             nullptr,
-                                             1);
-    }
+                            T *result, int *resultShapeInfo);    
 
 
     /**
@@ -310,15 +221,7 @@ public:
                                int *xShapeInfo,
                                T *extraParamsVals,
                                T *y,
-                               int *yShapeInfo) {
-        return functions::reduce3::Reduce3<T>::execScalar(
-                opNum,
-                x,
-                xShapeInfo,
-                extraParamsVals,
-                y,
-                yShapeInfo);
-    }
+                               int *yShapeInfo);
 
     /**
      *
@@ -342,18 +245,33 @@ public:
                             T *result,
                             int *resultShapeInfoBuffer,
                             int *dimension,
-                            int dimensionLength) {
-        functions::reduce3::Reduce3<T>::exec(opNum,
-                                             x,
-                                             xShapeInfo,
-                                             extraParamsVals,
-                                             y,
-                                             yShapeInfo,
-                                             result,
-                                             resultShapeInfoBuffer,
-                                             dimension,
-                                             dimensionLength);
-    }
+                            int dimensionLength);
+
+    static void execReduce3All(int opNum,
+                            T *x,
+                            int *xShapeInfo,
+                            T *extraParamsVals,
+                            T *y,
+                            int *yShapeInfo,
+                            T *result,
+                            int *resultShapeInfoBuffer,
+                            int *dimension,
+                            int dimensionLength,
+                            int *xTadShapeInfo,
+                            Nd4jIndex *xOffsets,
+                            int *yTadShapeInfo,
+                            Nd4jIndex *yOffsets);
+
+    static void execReduce3TAD(int opNum,
+                            T *x,
+                            int *xShapeInfo,
+                            T *extraParamsVals,
+                            T *y,
+                            int *yShapeInfo,
+                            T *result,
+                            int *resultShapeInfoBuffer,
+                            int *dimension,
+                            int dimensionLength, int *tadShapeInfo, Nd4jIndex *tadOffsets);
 
     /**
      *
@@ -373,17 +291,7 @@ public:
                            int resultStride,
                            T scalar,
                            T *extraParams,
-                           Nd4jIndex n) {
-        functions::scalar::ScalarTransform<T>::transform(opNum,
-                                                         x,
-                                                         xStride,
-                                                         result,
-                                                         resultStride,
-                                                         scalar,
-                                                         extraParams,
-                                                         n);
-    }
-
+                           Nd4jIndex n);
 
     /**
      *
@@ -402,17 +310,7 @@ public:
                            T *result,
                            int *resultShapeInfo,
                            T scalar,
-                           T *extraParams) {
-        functions::scalar::ScalarTransform<T>::transform(opNum,
-                                                         x,
-                                                         xShapeInfo,
-                                                         result,
-                                                         resultShapeInfo,
-                                                         scalar,
-                                                         extraParams);
-
-
-    }
+                           T *extraParams);
 
     /**
  *
@@ -433,17 +331,7 @@ public:
                            T scalar,
                            T *extraParams,
                            int *xIndexes,
-                           int *resultIndexes) {
-        functions::scalar::ScalarTransform<T>::transform(opNum,
-                                                         x,
-                                                         xShapeInfo,
-                                                         result,
-                                                         resultShapeInfo,
-                                                         scalar,
-                                                         extraParams,
-                                                         xIndexes,
-                                                         resultIndexes);
-    }
+                           int *resultIndexes);
 
     static void execScalar(int opNum,
                            T *x,
@@ -455,23 +343,9 @@ public:
                            int *dimension,
                            int dimensionLength,
                            int *tadShapeInfo,
-                           int *tadOffsets,
+                           Nd4jIndex *tadOffsets,
                            int *tadShapeInfoZ,
-                           int *tadOffsetsZ) {
-        functions::scalar::ScalarTransform<T>::transform(opNum,
-                                                         x,
-                                                         xShapeInfo,
-                                                         extraParams,
-                                                         z,
-                                                         zShapeInfo,
-                                                         scalars,
-                                                         dimension,
-                                                         dimensionLength,
-                                                         tadShapeInfo,
-                                                         tadOffsets,
-                                                         tadShapeInfoZ,
-                                                         tadOffsetsZ);
-    }
+                           Nd4jIndex *tadOffsetsZ);
 
     /**
      *
@@ -487,17 +361,7 @@ public:
                                  int *xShapeInfo,
                                  T *extraParams,
                                  T *result,
-                                 int *resultShapeInfo,bool biasCorrected) {
-        functions::summarystats::SummaryStatsReduce<T>::exec(opNum,
-                                                             biasCorrected,
-                                                             x,
-                                                             xShapeInfo,
-                                                             extraParams,
-                                                             result,
-                                                             resultShapeInfo,
-                                                             nullptr,
-                                                             1);
-    }
+                                 int *resultShapeInfo,bool biasCorrected);
 
     /**
     *
@@ -511,13 +375,7 @@ public:
     static T execSummaryStatsScalar(int opNum,
                                     T *x,
                                     int *xShapeInfo,
-                                    T *extraParams,bool biasCorrected) {
-        return functions::summarystats::SummaryStatsReduce<T>::execScalar(opNum,
-                                                                          biasCorrected,
-                                                                          x,
-                                                                          xShapeInfo,
-                                                                          extraParams);
-    }
+                                    T *extraParams,bool biasCorrected);
 
     /**
      *
@@ -537,19 +395,7 @@ public:
                                  int *resultShapeInfoBuffer,
                                  int *dimension,
                                  int dimensionLength,
-                                 bool biasCorrected) {
-        functions::summarystats::SummaryStatsReduce<T>::exec(opNum,
-                                                             biasCorrected,
-                                                             x,
-                                                             xShapeInfo,
-                                                             extraParams,
-                                                             result,
-                                                             resultShapeInfoBuffer,
-                                                             dimension,
-                                                             dimensionLength);
-    }
-
-
+                                 bool biasCorrected);
 
     /**
      *
@@ -567,17 +413,8 @@ public:
                               T *result,
                               int resultStride,
                               T *extraParams,
-                              Nd4jIndex n) {
-        functions::transform::Transform<T>::exec(opNum, dx,
-                                                 xStride,
-                                                 result,
-                                                 resultStride,
-                                                 extraParams,
-                                                 n);
-
-    }
-
-    /**
+                              Nd4jIndex n);
+ /**
  *
  * @param opNum
  * @param dx
@@ -594,18 +431,8 @@ public:
                               int *resultShapeInfo,
                               T *extraParams,
                               int *tadShapeInfo,
-                              int *tadOffsets) {
-        functions::transform::Transform<T>::exec(opNum,
-                                                 dx,
-                                                 xShapeInfo,
-                                                 result,
-                                                 resultShapeInfo,
-                                                 extraParams,
-                                                 tadShapeInfo,
-                                                 tadOffsets);
-    }
-
-    /**
+                              Nd4jIndex *tadOffsets);
+/**
 *
 * @param opNum
 * @param dx
@@ -624,21 +451,7 @@ public:
                               int *xIndexes,
                               int *resultIndexes,
                               int *tadShapeInfo,
-                              int *tadOffsets) {
-        functions::transform::Transform<T>::exec(
-                opNum,
-                dx,
-                xShapeInfo,
-                result,
-                resultShapeInfo,
-                extraParams,
-                xIndexes,
-                resultIndexes,
-                tadShapeInfo,
-                tadOffsets);
-
-    }
-
+                              Nd4jIndex *tadOffsets);
 
     static void execAggregate(int opNum,
                               T **arguments,
@@ -650,46 +463,19 @@ public:
                               int **intArrays,
                               int numIntArrays,
                               T *realArguments,
-                              int numRealArguments) {
-        functions::aggregate::AggregatedFunction<T>::exec(opNum,
-                                                          arguments,
-                                                          numArguments,
-                                                          shapeArguments,
-                                                          numShapeArguments,
-                                                          indexArguments,
-                                                          numIndexArguments,
-                                                          intArrays,
-                                                          numIntArrays,
-                                                          realArguments,
-                                                          numRealArguments);
-    }
-
+                              int numRealArguments);
 
     static void execRandom(int opNum,
                            Nd4jPointer state,
                            T *z,
-                           int *zShapeBuffer, T *extraArguments) {
-        functions::random::RandomFunction<T>::execTransform(opNum,
-                                                            state,
-                                                            z,
-                                                            zShapeBuffer,
-                                                            extraArguments);
-    }
+                           int *zShapeBuffer, T *extraArguments);
 
     static void execRandom(int opNum,
                            Nd4jPointer state,
                            T *x,
                            int *xShapeBuffer,
                            T *z,
-                           int *zShapeBuffer, T *extraArguments) {
-        functions::random::RandomFunction<T>::execTransform(opNum,
-                                                            state,
-                                                            x,
-                                                            xShapeBuffer,
-                                                            z,
-                                                            zShapeBuffer,
-                                                            extraArguments);
-    }
+                           int *zShapeBuffer, T *extraArguments);
 
     static void execRandom(int opNum,
                            Nd4jPointer state,
@@ -697,17 +483,29 @@ public:
                            int *xShapeBuffer,
                            T *y, int *yShapeBuffer,
                            T *z, int *zShapeBuffer,
-                           T *extraArguments) {
-        functions::random::RandomFunction<T>::execTransform(opNum,
-                                                            state,
-                                                            x,
-                                                            xShapeBuffer,
-                                                            y,
-                                                            yShapeBuffer,
-                                                            z,
-                                                            zShapeBuffer,
-                                                            extraArguments);
+                           T *extraArguments);
+
+    inline static void execSort(T *x, int *xShapeInfo, bool descending) {
+        nd4j::SpecialMethods<T>::sortGeneric(x, xShapeInfo, descending);
     }
+
+    static void execSort(T *x, int *xShapeInfo, int *dimension, int dimensionLength, int *tadShapeInfo, Nd4jIndex *tadOffsets, bool descending) {
+        nd4j::SpecialMethods<T>::sortTadGeneric(x, xShapeInfo, dimension, dimensionLength, tadShapeInfo, tadOffsets, descending);
+    }
+
+    inline static void execSortCooIndices(int *indices, T *values, Nd4jIndex length, int rank) {
+        nd4j::sparse::SparseUtils<T>::sortCooIndicesGeneric(indices, values, length, rank);
+    }
+
+
+    inline static Nd4jIndex encodeBitmap(T *dx, Nd4jIndex N, int *dz, float threshold) {
+        return nd4j::SpecialMethods<T>::encodeBitmapGeneric(dx, N, dz, threshold);
+    }
+
+    inline static void decodeBitmap(void *dx, Nd4jIndex N, T *dz) {
+        nd4j::SpecialMethods<T>::decodeBitmapGeneric(dx, N, dz);
+    }
+
 };
 
 
