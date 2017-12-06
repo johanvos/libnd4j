@@ -12,6 +12,7 @@
 #include <ops/declarable/LegacyBroadcastOp.h>
 #include <ops/declarable/LegacyReduce3Op.h>
 #include <ops/declarable/LegacyPairwiseTransformOp.h>
+#include <ops/declarable/LegacyRandomOp.h>
 
 namespace nd4j {
     namespace graph {
@@ -124,6 +125,11 @@ namespace nd4j {
         }
 
         template <typename T>
+        std::string * nd4j::graph::Node<T>::name() {
+            return this->getName();
+        }
+
+        template <typename T>
         std::string * nd4j::graph::Node<T>::getName() {
             return &_name;
         }
@@ -170,6 +176,13 @@ namespace nd4j {
             _output.push_back(pair);
 
             _hasExternalOutputs = true;
+        }
+
+        template <typename T>
+        void nd4j::graph::Node<T>::pickOutputOnce(int outputId) {
+            std::pair<int, int> pair(outputId, 0);
+            if (std::find(_output.begin(), _output.end(), pair) == _output.end())
+                pickOutput(outputId);
         }
 
         template <typename T>
@@ -331,10 +344,12 @@ namespace nd4j {
                     opType == OpType_INDEX_ACCUMULATION ||
                     opType == OpType_SUMMARYSTATS ||
                     opType == OpType_ACCUMULATION ||
+                    opType == OpType_ACCUMULATION3 ||
                     opType == OpType_TRANSFORM ||
+                    opType == OpType_RANDOM ||
+                    opType == OpType_PAIRWISE ||
                     opType == OpType_SCALAR) {
 
-                this->setCustomOp(Node<T>::buildOpByType(opType, (int) input.size(), opNum, scalar));
                 this->_isDeductable = true;
 
                 auto block = new ContextPrototype<T>(this->id(), false);
@@ -350,6 +365,7 @@ namespace nd4j {
                     block->getTArguments()->emplace_back(v);
 
                 this->setContextPrototype(block);
+                this->setCustomOp(Node<T>::buildOpByType(opType, (int) input.size(), (int) block->getIArguments()->size(), (int) block->getTArguments()->size(), opNum, scalar));
             } else if (opType == OpType_CUSTOM) {
                 auto block = new ContextPrototype<T>(this->id(), false);
 
@@ -411,8 +427,11 @@ namespace nd4j {
 
                 if (node->output() != nullptr)
                     for (int e = 0; e < (int) node->output()->size(); e++) {
-                        nd4j_verbose("Picking output: %i\n", node->output()->Get(e));
-                        pickOutput(node->output()->Get(e));
+                        auto oid = node->output()->Get(e);
+                        if (oid != this->_id && oid != 0) {
+                            nd4j_verbose("Picking output: %i\n", node->output()->Get(e));
+                            pickOutput(oid);
+                        }
                     }
 
 
@@ -433,13 +452,12 @@ namespace nd4j {
 
 
                 // these ops allow in-place execution by design
-                if (this->_opType == OpType_TRANSFORM || this->_opType == OpType_SCALAR || this->_opType == OpType_BROADCAST || this->_opType == OpType_ACCUMULATION || this->_opType == OpType_SUMMARYSTATS || this->_opType == OpType_INDEX_ACCUMULATION) {
+                if (this->_opType == OpType_TRANSFORM || this->_opType == OpType_SCALAR || this->_opType == OpType_BROADCAST || this->_opType == OpType_RANDOM || this->_opType == OpType_ACCUMULATION || this->_opType == OpType_ACCUMULATION3 || this->_opType == OpType_PAIRWISE || this->_opType == OpType_SUMMARYSTATS || this->_opType == OpType_INDEX_ACCUMULATION) {
                     if (_output.size() <= 1) {
                         _isInplace = true;
                     }
 
                     if (node->input() != nullptr && node->input()->size() > 0) {
-                        this->setCustomOp(Node<T>::buildOpByType(_opType, (int) node->input()->size(), _opNum, _scalar));
                         this->_isDeductable = true;
 
                         auto block = new ContextPrototype<T>(this->id(), false);
@@ -454,8 +472,8 @@ namespace nd4j {
                             }
 
                         this->setContextPrototype(block);
+                        this->setCustomOp(Node<T>::buildOpByType(_opType, (int) node->input()->size(), (int) block->getIArguments()->size(), (int) block->getTArguments()->size(), (int) _opNum, _scalar));
                     } else if (node->inputPaired() != nullptr && node->inputPaired()->size() > 0) {
-                        this->setCustomOp(Node<T>::buildOpByType(_opType, (int) node->inputPaired()->size(), _opNum, _scalar));
                         this->_isDeductable = true;
 
                         auto block = new ContextPrototype<T>(this->id(), false);
@@ -474,33 +492,37 @@ namespace nd4j {
                             }
 
                         this->setContextPrototype(block);
+
+                        this->setCustomOp(Node<T>::buildOpByType(_opType, (int) node->inputPaired()->size(), (int) block->getIArguments()->size(), (int) block->getTArguments()->size(), (int) _opNum, _scalar));
                     }
                 } else if (this->_opType == OpType_CUSTOM) {
-                    auto op = nd4j::ops::OpRegistrator::getInstance()->getOperationFloat(this->opNum());
-                    if (op == nullptr) {
-                        nd4j_verbose("Can't find operation: %lld\n", this->opNum());
-                        throw "Boom";
-                    }
-
-                    auto block = new ContextPrototype<T>(this->id());
-
-                    for (int e = 0; e < this->input()->size(); e++) {
-                        block->inputs()->emplace_back(this->input()->at(e));
-                    }
-
-                    if (node->extraInteger() != nullptr)
-                        for (uint32_t e = 0; e < node->extraInteger()->size(); e++) {
-                            int v = node->extraInteger()->Get(e);
-                            block->getIArguments()->push_back(v);
+                    if (sizeof(T) == 4) {
+                        auto op = nd4j::ops::OpRegistrator::getInstance()->template getOperationT<T>(this->opNum());
+                        if (op == nullptr) {
+                            nd4j_verbose("Can't find operation: %lld\n", this->opNum());
+                            throw "Boom";
                         }
 
-                    if (node->extraParams() != nullptr)
-                        for (uint32_t e = 0; e < node->extraParams()->size(); e++)
-                            block->getTArguments()->emplace_back(node->extraParams()->Get(e));
+                        auto block = new ContextPrototype<T>(this->id());
 
-                    this->setContextPrototype(block);
+                        for (int e = 0; e < this->input()->size(); e++) {
+                            block->inputs()->emplace_back(this->input()->at(e));
+                        }
 
-                    this->setCustomOp(op);
+                        if (node->extraInteger() != nullptr)
+                            for (uint32_t e = 0; e < node->extraInteger()->size(); e++) {
+                                int v = node->extraInteger()->Get(e);
+                                block->getIArguments()->push_back(v);
+                            }
+
+                        if (node->extraParams() != nullptr)
+                            for (uint32_t e = 0; e < node->extraParams()->size(); e++)
+                                block->getTArguments()->emplace_back(node->extraParams()->Get(e));
+
+                        this->setContextPrototype(block);
+
+                        this->setCustomOp(op);
+                    }
                 }
             } else {
                 // empty dynamic node, tests probably
@@ -532,24 +554,24 @@ namespace nd4j {
         }
 
         template <typename T>
-        nd4j::ops::DeclarableOp<T>* nd4j::graph::Node<T>::buildOpByType(OpType opType, int numInputs, int opNum, T scalar) {
+        nd4j::ops::DeclarableOp<T>* nd4j::graph::Node<T>::buildOpByType(OpType opType, int numInputs,  int numIArgs, int numTArgs, int opNum, T scalar) {
             switch (opType) {
+                case OpType_PAIRWISE:
+                    return new nd4j::ops::LegacyPairwiseTransformOp<T>(opNum);
                 case OpType_TRANSFORM:
-                    if (numInputs == 2)
-                        return new nd4j::ops::LegacyPairwiseTransformOp<T>(opNum);
-                    else
-                        return new nd4j::ops::LegacyTransformOp<T>(opNum);
+                    return new nd4j::ops::LegacyTransformOp<T>(opNum);
                 case OpType_SCALAR:
                     return new nd4j::ops::LegacyScalarOp<T>(opNum, scalar);
+                case OpType_ACCUMULATION3:
+                    return new nd4j::ops::LegacyReduce3Op<T>(opNum);
                 case OpType_ACCUMULATION:
-                    if (numInputs == 2)
-                        return new nd4j::ops::LegacyReduce3Op<T>(opNum);
-                    else
-                        return new nd4j::ops::LegacyReduceOp<T>(opNum);
+                    return new nd4j::ops::LegacyReduceOp<T>(opNum);
                 case OpType_INDEX_ACCUMULATION:
                     return new nd4j::ops::LegacyIndexReduceOp<T>(opNum);
                 case OpType_SUMMARYSTATS:
                     return new nd4j::ops::LegacyStatsOp<T>(opNum);
+                case OpType_RANDOM:
+                    return new nd4j::ops::LegacyRandomOp<T>(opNum);
                 case OpType_BROADCAST:
                     return new nd4j::ops::LegacyBroadcastOp<T>(opNum);
                 default:
@@ -558,7 +580,7 @@ namespace nd4j {
         }
 
         template class ND4J_EXPORT Node<float>;
-      //  template class ND4J_EXPORT Node<float16>;
-      //  template class ND4J_EXPORT Node<double>;
+        template class ND4J_EXPORT Node<float16>;
+        template class ND4J_EXPORT Node<double>;
     }
 }

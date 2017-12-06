@@ -3,6 +3,7 @@
 //
 
 #include <Context.h>
+#include <helpers/ShapeUtils.h>
 
 namespace nd4j {
     namespace graph {
@@ -40,6 +41,9 @@ namespace nd4j {
 
             this->_executionTime.first = 0;
             this->_executionTime.second = 0;
+
+            if (variableSpace != nullptr)
+                this->_rng = variableSpace->getRNG();
         }
 
         template <typename T>
@@ -67,6 +71,9 @@ namespace nd4j {
         template <typename T>
         void Context<T>::setVariableSpace(VariableSpace<T> *variableSpace) {
             this->_variableSpace = variableSpace;
+
+            if (variableSpace != nullptr)
+                this->_rng = variableSpace->getRNG();
         }
 
         template <typename T>
@@ -165,7 +172,15 @@ namespace nd4j {
             }
 
             auto p = this->_inputs[idx];
-            return variable(p);
+
+            auto v = variable(p);
+
+            if (Environment::getInstance()->isDebugAndVerbose() && v != nullptr &&  v->getNDArray() != nullptr) {
+                std::string shape_ = ShapeUtils<T>::shapeAsString(*(v->getNDArray()));
+                nd4j_printf("Debug info for node_%i input[%i]; shape: [%s]; mean value: [%f]\n", this->_nodeId, idx, shape_.c_str(), (float) v->getNDArray()->meanNumber());
+            }
+
+            return v;
         }
 
         template <typename T>

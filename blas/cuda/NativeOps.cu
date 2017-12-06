@@ -4567,6 +4567,21 @@ void NativeOps::initializeDevicesAndFunctions() {
     //cudaFuncGetAttributes(&funcAttributes[48], scalarAlongDimension_0_double);
 }
 
+void NativeOps::initializeFunctions(Nd4jPointer *functions) {
+    nd4j::BlasHelper::getInstance()->initializeDeviceFunctions(functions);
+	/*
+	this->cublasSgemv = (CublasSgemv)functions[0];
+    this->cublasDgemv = (CublasDgemv)functions[1];
+    this->cublasHgemm = (CublasHgemm)functions[2];
+    this->cublasSgemm = (CublasSgemm)functions[3];
+    this->cublasDgemm = (CublasDgemm)functions[4];
+    this->cublasSgemmEx = (CublasSgemmEx)functions[5];
+    this->cublasHgemmBatched = (CublasHgemmBatched)functions[6];
+    this->cublasSgemmBatched = (CublasSgemmBatched)functions[7];
+    this->cublasDgemmBatched = (CublasDgemmBatched)functions[8];
+	*/
+}
+
 
 /**
  * This method acquires memory chunk of requested size on host side
@@ -6770,8 +6785,18 @@ Nd4jPointer NativeOps::executeProtoGraphFloat(Nd4jPointer *extraPointers, const 
 }
 
 Nd4jPointer NativeOps::executeFlatGraphFloat(Nd4jPointer *extraPointers, Nd4jPointer flatBufferPointer) {
-return nullptr;
+	return nullptr;
 }
+
+Nd4jPointer NativeOps::executeFlatGraphHalf(Nd4jPointer *extraPointers, Nd4jPointer flatBufferPointer) {
+	return nullptr;
+}
+
+	
+Nd4jPointer NativeOps::executeFlatGraphDouble(Nd4jPointer *extraPointers, Nd4jPointer flatBufferPointer) {
+	return nullptr;
+}
+		
 
 
 const char* NativeOps::getAllCustomOps() {
@@ -6822,15 +6847,16 @@ Nd4jPointer* NativeOps::calculateOutputShapesDouble(Nd4jPointer* extraPointers, 
 }
 
 template<typename T>
-Nd4jStatus realExec(nd4j::ops::DeclarableOp<T>* op, Nd4jPointer* extraPointers, Nd4jIndex hash, Nd4jPointer* inputBuffers, Nd4jPointer* inputShapes, int numInputs, Nd4jPointer* outputBuffers, Nd4jPointer* outputShapes, int numOutputs, T* tArgs, int numTArgs, int *iArgs, int numIArgs, bool isInplace) {
+static FORCEINLINE Nd4jStatus realExec(nd4j::ops::DeclarableOp<T>* op, Nd4jPointer* extraPointers, Nd4jIndex hash, Nd4jPointer* inputBuffers, Nd4jPointer* inputShapes, int numInputs, Nd4jPointer* outputBuffers, Nd4jPointer* outputShapes, int numOutputs, T* tArgs, int numTArgs, int *iArgs, int numIArgs, bool isInplace) {
 	if (op == nullptr)
 		nd4j_printf("Can't find requested operation: [%lld]\n", hash);
 
 	// we're using the same fake nodeId everywhere here
 
-	std::vector<nd4j::NDArray<T>*> inputs;
-	std::vector<T> ttArgs;
-	std::vector<int> iiArgs;
+	std::vector<nd4j::NDArray<T>*> inputs(numInputs);
+    std::vector<nd4j::NDArray<T>*> outputs;
+	std::vector<T> ttArgs(numTArgs);
+	std::vector<int> iiArgs(numIArgs);
 
 	// filling block now
 	for (int e = 0; e < numInputs; e++) {
@@ -6839,16 +6865,19 @@ Nd4jStatus realExec(nd4j::ops::DeclarableOp<T>* op, Nd4jPointer* extraPointers, 
 
 		// auto var = new Variable<T>(new NDArray<T>(buffer, shape));
 		// block.getVariables()->emplace_back(var);
-		inputs.push_back(new nd4j::NDArray<T>(buffer, shape));
+		auto array = new nd4j::NDArray<T>(buffer, shape);
+		//array->setSpecialBuffers( (T *) inputBuffers[e + numInputs],  (int *) inputShapes[e + numInputs]);
+
+		inputs[e] = array;
 	}
 
-	for (int e = 0; e < numIArgs; e++) {
-		iiArgs.push_back(iArgs[e]);
-	}
+	for (int e = 0; e < numIArgs; e++)
+		iiArgs[e] = iArgs[e];
 
-	for (int e = 0; e < numTArgs; e++) {
-		ttArgs.push_back(tArgs[e]);
-	}
+
+	for (int e = 0; e < numTArgs; e++)
+		ttArgs[e] = tArgs[e];
+
 
 	// hypothetically at this point we have everything filled
 	auto result = op->execute(inputs, ttArgs, iiArgs, isInplace);
@@ -6873,10 +6902,8 @@ Nd4jStatus realExec(nd4j::ops::DeclarableOp<T>* op, Nd4jPointer* extraPointers, 
 	delete result;
 
 
-	for (int e = 0; e < inputs.size(); e++) {
-		auto ptr = inputs.at(e);
+	for (auto ptr: inputs)
 		delete ptr;
-	}
 
 
 	return ND4J_STATUS_OK;

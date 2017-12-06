@@ -17,6 +17,9 @@ namespace nd4j {
             NDArray<T> *y = INPUT_VARIABLE(1);
             NDArray<T> *z = this->getZ(block);
 
+            //x->printShapeInfo("x shape");
+            //y->printShapeInfo("y shape");
+
             T alpha = (T) 1.0f;
             T beta = (T) 0.0f;
             if (block.getTArguments()->size() > 0)
@@ -58,6 +61,7 @@ namespace nd4j {
         DECLARE_SYN(gemm, matmul);
         DECLARE_SYN(gemv, matmul);
         DECLARE_SYN(dot, matmul);
+
         DECLARE_SHAPE_FN(matmul) {
             int *inA = inputShape->at(0);
             int *inB = inputShape->at(1);
@@ -78,8 +82,8 @@ namespace nd4j {
                 shape[1] = 1;
             } else if (shape::isMatrix(inA) && shape::isVector(inB)) {
                 // gemv case
-                shape[0] = 1;
-                shape[1] = (int) shape::length(inB);
+                shape[0] = inA[1];
+                shape[1] = inB[2];
             } else if ((shape::isMatrix(inA) && shape::isMatrix(inB)) || (shape::isVector(inA) && shape::isMatrix(inB))) {
                 // gemv case
                 shape[0] = inA[1];

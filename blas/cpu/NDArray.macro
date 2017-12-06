@@ -33,10 +33,17 @@ BUILD_CALL_1(template void nd4j::NDArray<float16>::applyBroadcast, float16, (std
 BUILD_CALL_1(template void nd4j::NDArray<float>::applyBroadcast, float, (std::initializer_list<int> list, const nd4j::NDArray<float>* a, nd4j::NDArray<float>* b, float* c), BROADCAST_OPS)
 BUILD_CALL_1(template void nd4j::NDArray<double>::applyBroadcast, double, (std::initializer_list<int> list, const nd4j::NDArray<double>* a, nd4j::NDArray<double>* b, double* c), BROADCAST_OPS)
 
+BUILD_CALL_1(template void nd4j::NDArray<float16>::applyTrueBroadcast, float16,(const nd4j::NDArray<float16>* a, nd4j::NDArray<float16>* target, const bool checkTargetShape, float16* c) const, BROADCAST_OPS)
+BUILD_CALL_1(template void nd4j::NDArray<float>::applyTrueBroadcast,   float,  (const nd4j::NDArray<float>*   a, nd4j::NDArray<float>*   target, const bool checkTargetShape, float* c)   const, BROADCAST_OPS)
+BUILD_CALL_1(template void nd4j::NDArray<double>::applyTrueBroadcast,  double, (const nd4j::NDArray<double>*  a, nd4j::NDArray<double>*  target, const bool checkTargetShape, double* c)  const, BROADCAST_OPS)
+
 BUILD_CALL_1(template nd4j::NDArray<float16>* nd4j::NDArray<float16>::applyTrueBroadcast, float16, (const nd4j::NDArray<float16>* a, float16* c) const, BROADCAST_OPS)
 BUILD_CALL_1(template nd4j::NDArray<float>* nd4j::NDArray<float>::applyTrueBroadcast, float, (const nd4j::NDArray<float>* a, float* c) const, BROADCAST_OPS)
 BUILD_CALL_1(template nd4j::NDArray<double>* nd4j::NDArray<double>::applyTrueBroadcast, double, (const nd4j::NDArray<double>* a, double* c) const, BROADCAST_OPS)
 
+BUILD_CALL_1(template nd4j::NDArray<float16> nd4j::NDArray<float16>::applyTrueBroadcast, float16, (const nd4j::NDArray<float16>& a, float16* c) const, BROADCAST_OPS)
+BUILD_CALL_1(template nd4j::NDArray<float> nd4j::NDArray<float>::applyTrueBroadcast, float, (const nd4j::NDArray<float>& a, float* c) const, BROADCAST_OPS)
+BUILD_CALL_1(template nd4j::NDArray<double> nd4j::NDArray<double>::applyTrueBroadcast, double, (const nd4j::NDArray<double>& a, double* c) const, BROADCAST_OPS)
 
 BUILD_CALL_1(template void nd4j::NDArray<float16>::applyTransform, float16, (NDArray<float16>* target, float16* extraParams), TRANSFORM_OPS)
 BUILD_CALL_1(template void nd4j::NDArray<float>::applyTransform, float, (NDArray<float>* target, float* extraParams), TRANSFORM_OPS)
@@ -45,6 +52,10 @@ BUILD_CALL_1(template void nd4j::NDArray<double>::applyTransform, double, (NDArr
 BUILD_CALL_1(template void nd4j::NDArray<float16>::applyTransform, float16, (float16* extraParams), TRANSFORM_OPS)
 BUILD_CALL_1(template void nd4j::NDArray<float>::applyTransform, float, (float* extraParams), TRANSFORM_OPS)
 BUILD_CALL_1(template void nd4j::NDArray<double>::applyTransform, double, (double* extraParams), TRANSFORM_OPS)
+
+BUILD_CALL_1(template void nd4j::NDArray<float16>::applyRandom, float16, (nd4j::random::RandomBuffer *buffer, NDArray<float16>* y, NDArray<float16>* z, float16* extraParams), RANDOM_OPS)
+BUILD_CALL_1(template void nd4j::NDArray<float>::applyRandom, float, (nd4j::random::RandomBuffer *buffer, NDArray<float>* y, NDArray<float>* z, float* extraParams), RANDOM_OPS)
+BUILD_CALL_1(template void nd4j::NDArray<double>::applyRandom, double, (nd4j::random::RandomBuffer *buffer, NDArray<double>* y, NDArray<double>* z, double* extraParams), RANDOM_OPS)
 
 BUILD_CALL_1(template NDArray<float16> nd4j::NDArray<float16>::transform, float16, (float16* extraParams), TRANSFORM_OPS)
 BUILD_CALL_1(template NDArray<float>   nd4j::NDArray<float>::transform, float, (float* extraParams), TRANSFORM_OPS)
@@ -90,8 +101,17 @@ BUILD_CALL_1(template NDArray<float> *nd4j::NDArray<float>::template applyAllRed
 BUILD_CALL_1(template NDArray<float16> *nd4j::NDArray<float16>::template applyAllReduce3, float16, (const nd4j::NDArray<float16>* alpha, const std::vector<int> & beta, float16 const* gamma) const, REDUCE3_OPS)
 BUILD_CALL_1(template NDArray<double> *nd4j::NDArray<double>::template applyAllReduce3, double, (const nd4j::NDArray<double>* alpha, const std::vector<int> & beta, double const* gamma) const, REDUCE3_OPS)
 
-template NDArray<float> mmul(const NDArray<float>& left, const NDArray<float>& right);
+template NDArray<float>   mmul(const NDArray<float>&   left, const NDArray<float>& right);
 template NDArray<float16> mmul(const NDArray<float16>& left, const NDArray<float16>& right);
-template NDArray<double> mmul(const NDArray<double>& left, const NDArray<double>& right);
+template NDArray<double>  mmul(const NDArray<double>&  left, const NDArray<double>& right);
+
+// template NDArray<float>   operator-(const float,   const NDArray<float>&);
+// template NDArray<float16> operator-(const float16, const NDArray<float16>&);
+// template NDArray<double>  operator-(const double,  const NDArray<double>&);
+
+// template NDArray<float>   operator+(const float,   const NDArray<float>&);
+// template NDArray<float16> operator+(const float16, const NDArray<float16>&);
+// template NDArray<double>  operator+(const double,  const NDArray<double>&);
+
 
 #endif

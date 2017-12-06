@@ -62,7 +62,8 @@ TEST_F(ShapeUtilsTests, EvalBroadcastShapeInfo_1)
     NDArray<float> x(xShapeInfo);
     NDArray<float> y(yShapeInfo);
 
-    int *newShapeInfo = ShapeUtils<float>::evalBroadcastShapeInfo(x, y);
+    int *newShapeInfo = nullptr;
+    ShapeUtils<float>::evalBroadcastShapeInfo(x, y, false, newShapeInfo);
         
     ASSERT_TRUE(shape::equalsStrict(expShapeInfo, newShapeInfo));    
 
@@ -80,7 +81,8 @@ TEST_F(ShapeUtilsTests, EvalBroadcastShapeInfo_2)
     NDArray<float> x(xShapeInfo);
     NDArray<float> y(yShapeInfo);
 
-    int *newShapeInfo = ShapeUtils<float>::evalBroadcastShapeInfo(x, y);
+    int *newShapeInfo = nullptr;
+    ShapeUtils<float>::evalBroadcastShapeInfo(x, y, false, newShapeInfo);
         
     ASSERT_TRUE(shape::equalsStrict(expShapeInfo, newShapeInfo));    
 
@@ -98,7 +100,8 @@ TEST_F(ShapeUtilsTests, EvalBroadcastShapeInfo_3)
     NDArray<float> x(xShapeInfo);
     NDArray<float> y(yShapeInfo);
 
-    int *newShapeInfo = ShapeUtils<float>::evalBroadcastShapeInfo(x, y);
+    int *newShapeInfo = nullptr;
+    ShapeUtils<float>::evalBroadcastShapeInfo(x, y, false, newShapeInfo);
         
     ASSERT_TRUE(shape::equalsStrict(expShapeInfo, newShapeInfo));    
 
@@ -116,7 +119,8 @@ TEST_F(ShapeUtilsTests, EvalBroadcastShapeInfo_4)
     NDArray<float> x(xShapeInfo);
     NDArray<float> y(yShapeInfo);
 
-    int *newShapeInfo = ShapeUtils<float>::evalBroadcastShapeInfo(x, y);
+    int *newShapeInfo = nullptr;
+    ShapeUtils<float>::evalBroadcastShapeInfo(x, y, false, newShapeInfo);
     //for(int i=0; i<2*newShapeInfo[0]+4; ++i)
     //        std::cout<<newShapeInfo[i]<<" ";
     //  std::cout<<std::endl;
@@ -184,5 +188,14 @@ TEST_F(ShapeUtilsTests, evalReduceShapeInfo_test4)
     ASSERT_TRUE(shape::shapeEquals(expected.getShapeInfo(), newShapeInfo));
 
     delete []newShapeInfo;
+}
+
+TEST_F(ShapeUtilsTests, Test_Strings_1) {
+    NDArray<float> x('c', {2, 3, 4, 5});
+    std::string exp("[2, 3, 4, 5]");
+
+    auto s = ShapeUtils<float>::shapeAsString(x);
+
+    ASSERT_EQ(exp, s);
 }
 

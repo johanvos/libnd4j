@@ -1861,6 +1861,10 @@ void NativeOps::initializeDevicesAndFunctions() {
 
 }
 
+void NativeOps::initializeFunctions(Nd4jPointer *functions) {
+    BlasHelper::getInstance()->initializeFunctions(functions);
+}
+
 /**
        * This method acquires memory chunk of requested size on host side
        *
@@ -3085,6 +3089,14 @@ Nd4jPointer NativeOps::executeFlatGraphFloat(Nd4jPointer *extraPointers, Nd4jPoi
     return nd4j::graph::GraphExecutioner<float>::executeFlatBuffer(flatBufferPointer);
 }
 
+Nd4jPointer NativeOps::executeFlatGraphHalf(Nd4jPointer *extraPointers, Nd4jPointer flatBufferPointer) {
+    return nd4j::graph::GraphExecutioner<float16>::executeFlatBuffer(flatBufferPointer);
+}
+
+Nd4jPointer NativeOps::executeFlatGraphDouble(Nd4jPointer *extraPointers, Nd4jPointer flatBufferPointer) {
+    return nd4j::graph::GraphExecutioner<double>::executeFlatBuffer(flatBufferPointer);
+}
+
 Nd4jPointer NativeOps::executeProtoGraphFloat(Nd4jPointer *extraPointers, Nd4jPointer protoBufferPointer) {
     return nullptr;
 }
@@ -3185,6 +3197,11 @@ Nd4jStatus realExec(nd4j::ops::DeclarableOp<T>* op, Nd4jPointer* extraPointers, 
             auto buffer = (T *) outputBuffers[e];
             auto shape = (int *) outputShapes[e];
             nd4j::NDArray<T> tmp(buffer, shape);
+
+            if (tmp.lengthOf() != result->at(e)->lengthOf()) {
+                nd4j_printf("Provided output array for [%s] has length of %i, but actual result has length of %i\n", op->getOpName(), tmp.lengthOf(), result->at(e)->lengthOf());
+                return ND4J_STATUS_BAD_OUTPUT;
+            }
 
             tmp.assign(result->at(e));
         }

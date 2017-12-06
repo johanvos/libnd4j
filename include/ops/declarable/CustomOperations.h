@@ -27,7 +27,6 @@ namespace nd4j {
         DECLARE_REDUCTION_OP(testreduction, 1, 1, false, 0, -1);
         DECLARE_REDUCTION_OP(argmax, 1, 1, false, 0, -2);
         DECLARE_REDUCTION_OP(argmin, 1, 1, false, 0, -2);
-        DECLARE_REDUCTION_OP(sum, 1, 1, false, 0, -1);
 
         DECLARE_OP(noop, -1, -1, true);
         DECLARE_OP(testop2i2o, 2, 2, true);
@@ -68,6 +67,14 @@ namespace nd4j {
         DECLARE_OP(greater, 2, 1, true);
         DECLARE_OP(log1p, 2, 1, true);
         DECLARE_OP(toggle_bits, -1, -1, true);
+        DECLARE_OP(rint, 1, 1, true);
+
+        DECLARE_OP(scatter_add, 3, 1, true);
+        DECLARE_OP(scatter_sub, 3, 1, true);
+        DECLARE_OP(scatter_mul, 3, 1, true);
+        DECLARE_OP(scatter_div, 3, 1, true);
+        DECLARE_OP(scatter_upd, 3, 1, true);
+    
 
 
         DECLARE_DIVERGENT_OP(Switch, 2, 2, true);
@@ -116,7 +123,7 @@ namespace nd4j {
         DECLARE_CUSTOM_OP(repeat, 1, 1, true, 0, -1);   
         DECLARE_CUSTOM_OP(conv3d, 2, 1, false, 0, 7); 
         DECLARE_CUSTOM_OP(maxpool3d, 1, 2, true, 0, 13); 
-        DECLARE_CUSTOM_OP(permute, 1, 1, true, 0, -1);   
+        DECLARE_CUSTOM_OP(permute, 1, 1, true, 0, -2);   
         DECLARE_CUSTOM_OP(reshapeas, 2, 1, true, 0, 0);      
         DECLARE_CUSTOM_OP(transpose, 1, 1, true, 0, 0);
         DECLARE_CUSTOM_OP(stack, -1, 1, false, 0, 0);
@@ -128,7 +135,7 @@ namespace nd4j {
         DECLARE_CUSTOM_OP(cast, 1, 1, false, 0, 1);
         DECLARE_CUSTOM_OP(pad, 2, 1, false, 0, 1);
         DECLARE_CUSTOM_OP(expose, -1, -1, true, 0, 0);
-        DECLARE_CUSTOM_OP(where, 1, 1, false, 0, 0);
+        DECLARE_CUSTOM_OP(Where, 1, 1, false, 0, 0);
         DECLARE_CUSTOM_OP(select, 3, 1, false, 0, 0);
         DECLARE_CUSTOM_OP(shape_of, 1, 1, false, 0, 0);
         DECLARE_CUSTOM_OP(gather, 2, 1, false, 0, 1);
@@ -141,6 +148,15 @@ namespace nd4j {
         DECLARE_CUSTOM_OP(hingeLoss, 3, 1, false, 0, 1);
         DECLARE_CUSTOM_OP(huberLoss, 3, 1, false, 1, 1);
         DECLARE_CUSTOM_OP(logLoss, 3, 1, false, 1, 1);
+        DECLARE_CUSTOM_OP(meanPairWsSqErr, 3, 1, false, 0, 0);
+        DECLARE_CUSTOM_OP(meanSqErr, 3, 1, false, 0, 1);
+        DECLARE_CUSTOM_OP(sigmCrossEntropy, 3, 1, false, 1, 1);
+        DECLARE_CUSTOM_OP(softmaxCrossEntropy, 3, 1, false, 1, 1);      
+        DECLARE_CUSTOM_OP(batchnorm, 5, 1, false, 1, 2);
+        DECLARE_CUSTOM_OP(unique, 1, 2, false, 0, 0);
+        DECLARE_CUSTOM_OP(lstmCell, 8, 2, false, 3, 2);
+        DECLARE_CUSTOM_OP(sruCell, 4, 2, false, 0, 0);
+        DECLARE_CUSTOM_OP(gruCell, 5, 1, false, 0, 0);
 
         // recurrent ops
         DECLARE_CUSTOM_OP(sru,         5, 2, false, 0, 0);
@@ -153,13 +169,13 @@ namespace nd4j {
         DECLARE_CONFIGURABLE_OP(clipbyvalue, 1, 1, true, 2, 0);
         DECLARE_CONFIGURABLE_OP(scatter_update, 2, 1, true, 0, -1);
         DECLARE_CONFIGURABLE_OP(relu, 1, 1, true, 1, 0);        
-        DECLARE_CONFIGURABLE_OP(randomuniform, 1, 1, true, 2, 0);
-        DECLARE_CONFIGURABLE_OP(batchnorm, 1, 1, true, 4, 3);
-        DECLARE_CONFIGURABLE_OP(batchnorm_bp, 5, 1, true, 0, 1);                
+        DECLARE_CONFIGURABLE_OP(randomuniform, 1, 1, true, 2, 0);        
+        // DECLARE_CONFIGURABLE_OP(batchnorm_bp, 5, 1, true, 0, 1);                
         DECLARE_CONFIGURABLE_OP(conv3d_bp, 3, 1, false, 0, 7); // TODO: to be implemented        
         DECLARE_CONFIGURABLE_OP(ismax, 1, 1, false, 0, -1);
         DECLARE_CONFIGURABLE_OP(fill_as, 1, 1, true, 1, 0);
         DECLARE_CONFIGURABLE_OP(reverse, 1, 1, true, 0, -2);
+        DECLARE_CONFIGURABLE_OP(axpy, 2, 1, false, -2, 0);
         DECLARE_CONFIGURABLE_OP(apply_sgd, 2, 1, true, -2, 0);
 
         // grad ops
@@ -177,7 +193,7 @@ namespace nd4j {
         DECLARE_CONFIGURABLE_OP(hardtanh_bp, 2, 1, true, 0, 0);
         DECLARE_CONFIGURABLE_OP(hardsigmoid_bp, 2, 1, true, 0, 0);
 
-        DECLARE_CONFIGURABLE_OP(firas_sparse, 1, 1, false, 0, -1);
+        DECLARE_CUSTOM_OP(firas_sparse, 1, 1, false, 0, -1);
 
         DECLARE_BOOLEAN_OP(lt_scalar, 2, true);
         DECLARE_BOOLEAN_OP(gt_scalar, 2, true);

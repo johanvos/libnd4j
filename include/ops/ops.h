@@ -12,7 +12,6 @@
 #define MAX_INT 2147483647
 #define MIN_CUTFOFF -3.79297773665f
 #define FLOAT_MIN_NORMAL 1.17549435e-38
-#define FLOAT_MAX_VALUE 3.4028235E38
 #define EPS 1e-5
 #define AFFINITY close
 #ifndef M_E
@@ -28,13 +27,13 @@
 #define no_op_exec_special_accumulation_cuda 	static inline __device__ void execSpecialCuda(T *dx, int *xShapeInfo, T *extraParams, T *result, int *resultShapeInfo, int *dimension, int dimensionLength, T *reductionBuffer, UnifiedSharedMemory *manager, int *tadOnlyShapeInfo, Nd4jIndex *tadOffsets) {}
 #else
 // hacky fix for isnan/being being out of scope
-#ifdef IOS
-#define isinf(x) 0 // this isn't right. But std::isinf fails
-#define isnan(x) 0
-#else
-#define isnan std::isnan
-#define isinf std::isinf
-#endif
+//#ifdef IOS
+//#define isinf(x) 0 // this isn't right. But std::isinf fails
+//#define isnan(x) 0
+//#else
+//#define isnan std::isnan
+//#define isinf std::isinf
+//#endif
 
 #define meta_def inline
 #define no_op_exec_special_cuda
@@ -219,6 +218,33 @@ namespace simdOps {
 
 		// op for MetaOps
 		op_def static T op(T d1, T *params) {
+			return d1 / params[0];
+		}
+	};
+
+	template<typename T>
+	class SafeDivide {
+	public:
+		op_def static T op(T d1, T d2) {
+			if(d2 == (T)0.)
+				return (T)0.;
+			return d1 / d2;
+		}
+
+		op_def static T op(T d1, T d2, T *params) {
+			if(d2 == (T)0.)
+				return (T)0.;
+			return d1 / d2;
+		}
+		
+		op_def static T op(T d1) {
+			return d1;
+		}
+
+		// op for MetaOps
+		op_def static T op(T d1, T *params) {
+			if(params[0] == (T)0.)
+				return (T)0.;
 			return d1 / params[0];
 		}
 	};
@@ -874,7 +900,7 @@ namespace simdOps {
 		no_op_exec_special_cuda
 
 		op_def static T op(T d1, T *params) {
-			return isnan(d1) ? (T) 1.0f : (T) 0.0f;
+			return nd4j::math::nd4j_isnan(d1) ? (T) 1.0f : (T) 0.0f;
 		}
 	};
 
@@ -885,7 +911,7 @@ namespace simdOps {
 		no_op_exec_special_cuda
 
 		op_def static T op(T d1, T *params) {
-			return isinf(d1) ? (T) 1.0f : (T) 0.0f;
+			return nd4j::math::nd4j_isinf(d1) ? (T) 1.0f : (T) 0.0f;
 		}
 	};
 
@@ -896,7 +922,7 @@ namespace simdOps {
 		no_op_exec_special_cuda
 
 		op_def static T op(T d1, T *params) {
-			return (!isinf(d1) && ! isnan(d1))? (T) 1.0f : (T) 0.0f;
+			return nd4j::math::nd4j_isfin<T>(d1) ? (T) 1.0f : (T) 0.0f;
 		}
 	};
 
@@ -913,18 +939,6 @@ namespace simdOps {
 			else if (d1 < params[0])
 				return params[0];
 			else return d1;
-		}
-	};
-
-	
-	template<typename T>
-	class Sigmoid {
-	public:
-		no_op_exec_special
-		no_op_exec_special_cuda
-
-		op_def static T op(T d1, T *params) {
-			return nd4j::math::nd4j_sigmoid<T>(d1);
 		}
 	};
 
@@ -952,6 +966,40 @@ namespace simdOps {
 		}
 	};
 
+
+	template<typename T>
+	class LogSigmoid {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return nd4j::math::nd4j_log(nd4j::math::nd4j_sigmoid<T>(d1));
+		}
+	};
+
+	template<typename T>
+	class LogSigmoidDerivative {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			T ex = nd4j::math::nd4j_pow<T>(M_E, d1);
+			return (T) 1. / (ex + (T) 1.);
+		}
+	};
+
+	template<typename T>
+	class Sigmoid {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return nd4j::math::nd4j_sigmoid<T>(d1);
+		}
+	};
 
 	template<typename T>
 	class SigmoidDerivative {
@@ -1043,6 +1091,17 @@ namespace simdOps {
 
 		op_def static T op(T d1, T *params) {
 			return (T) 1.0f / nd4j::math::nd4j_sqrt<T>(d1);
+		}
+	};
+
+	template<typename T>
+	class Rint {
+	public:
+		no_op_exec_special
+		no_op_exec_special_cuda
+
+		op_def static T op(T d1, T *params) {
+			return nd4j::math::nd4j_rint<T>(d1);
 		}
 	};
 
@@ -1335,9 +1394,9 @@ namespace simdOps {
             else if (mode == 7) // abs_greater_than
                 return nd4j::math::nd4j_abs<T>(d1) > compare? 1.0 : 0.0;
             else if (mode == 8) // is inf
-                return isinf(d1) ? 1.0 : 0.0;
+                return nd4j::math::nd4j_isinf(d1) ? 1.0 : 0.0;
             else if (mode == 9) // is nan
-                return isnan(d1) ? 1.0 : 0.0;
+                return nd4j::math::nd4j_isnan(d1) ? 1.0 : 0.0;
             else if (mode == 10)
                 return (d1 == compare) ? 1.0 : 0.0;
             else if (mode == 11)
@@ -3208,7 +3267,7 @@ template<typename T>
 
 		op_def static T op(T d1, T *params) {
 			T replacement = params[0];
-			return isnan(d1) ? replacement : d1 ;
+			return nd4j::math::nd4j_isnan(d1) ? replacement : d1 ;
 		}
 	};
 
@@ -3265,12 +3324,12 @@ template<typename T>
                 else
                     return d1;
             else if (mode == 8) // is inf
-                if (isinf(d1))
+                if (nd4j::math::nd4j_isinf(d1))
                     return d2;
                 else
                     return d1;
             else if (mode == 9) // is nan
-                if (isnan(d1))
+                if (nd4j::math::nd4j_isnan(d1))
                     return d2;
                 else
                     return d1;
@@ -3357,12 +3416,12 @@ template<typename T>
                 else
                     return d1;
             else if (mode == 8) // is inf
-                if (isinf(d1))
+                if (nd4j::math::nd4j_isinf(d1))
                     return set;
                 else
                     return d1;
             else if (mode == 9) // is nan
-                if (isnan(d1))
+                if (nd4j::math::nd4j_isnan(d1))
                     return set;
                 else
                     return d1;
@@ -3437,12 +3496,12 @@ template<typename T>
                 else
                     return d1;
             else if (mode == 8) // is inf
-                if (isinf(d2))
+                if (nd4j::math::nd4j_isinf(d2))
                     return d2;
                 else
                     return d1;
             else if (mode == 9) // is nan
-                if (isnan(d2))
+                if (nd4j::math::nd4j_isnan(d2))
                     return d2;
                 else
                     return d1;

@@ -15,11 +15,14 @@
 namespace nd4j {
 
     template<typename T> class ND4J_EXPORT NDArray;
-    template<typename T> NDArray<T> operator+(const T, const NDArray<T>&);
+    // template<typename T> NDArray<T> operator+(const T, const NDArray<T>&);
     // template<typename T> NDArray<T> operator-(const T, const NDArray<T>&);
     ND4J_EXPORT NDArray<float> operator-(const float, const NDArray<float>&);
     ND4J_EXPORT NDArray<float16> operator-(const float16, const NDArray<float16>&);
     ND4J_EXPORT NDArray<double> operator-(const double, const NDArray<double>&);
+    ND4J_EXPORT NDArray<float> operator+(const float, const NDArray<float>&);
+    ND4J_EXPORT NDArray<float16> operator+(const float16, const NDArray<float16>&);
+    ND4J_EXPORT NDArray<double> operator+(const double, const NDArray<double>&);
     template<typename T> NDArray<T> mmul(const NDArray<T>&, const NDArray<T>&);
 
 
@@ -33,10 +36,9 @@ namespace nd4j {
 
         nd4j::memory::Workspace* _workspace = nullptr;
 
-#ifdef __CUDACC__
         T* _bufferD = nullptr;
         int* _shapeInfoD = nullptr;
-#endif
+
 
         bool _isShapeAlloc = false;                    // indicates whether user allocates memory for _shapeInfo by himself, in opposite case the memory must be allocated from outside
         bool _isBuffAlloc = false; 						// indicates whether user allocates memory for _buffer by himself, in opposite case the memory must be allocated from outside
@@ -128,6 +130,11 @@ namespace nd4j {
 
         T* getBuffer();
         T* buffer();
+
+
+        T* specialBuffer();
+        int* specialShapeInfo();
+        void setSpecialBuffers(T * buffer, int *shape);
 
 
         int* shapeInfo();
@@ -233,10 +240,10 @@ namespace nd4j {
 
         // Returns true if these two NDArrays have same shape
         FORCEINLINE bool isSameShape(const NDArray<T> *other) const;
-        FORCEINLINE bool isSameShape(std::initializer_list<int> shape);
-        FORCEINLINE bool isSameShape(std::initializer_list<Nd4jIndex> shape);
-        FORCEINLINE bool isSameShape(std::vector<int>& shape);
-        FORCEINLINE bool isSameShape(std::vector<Nd4jIndex >& shape);
+        FORCEINLINE bool isSameShape(const std::initializer_list<int>& shape) const;
+        FORCEINLINE bool isSameShape(const std::initializer_list<Nd4jIndex>& shape) const;
+        FORCEINLINE bool isSameShape(const std::vector<int>& shape) const;
+        FORCEINLINE bool isSameShape(const std::vector<Nd4jIndex >& shape) const;
 
 		// Returns true if these two NDArrays have same shape
         FORCEINLINE bool isSameShapeStrict(const NDArray<T> *other) const;
@@ -304,10 +311,13 @@ namespace nd4j {
         void applyBroadcast(std::vector<int> &dimensions, const NDArray<T> *tad, NDArray<T> *target = nullptr, T *extraArgs = nullptr);
         
         template <typename OpName>
-        NDArray<T> applyTrueBroadcast(const NDArray<T>& tad, T *extraArgs = nullptr) const;
+        NDArray<T> applyTrueBroadcast(const NDArray<T>& other, T *extraArgs = nullptr) const;
 
         template <typename OpName>
-        NDArray<T>* applyTrueBroadcast(const NDArray<T>* tad, T *extraArgs = nullptr) const;
+        NDArray<T>* applyTrueBroadcast(const NDArray<T>* other, T *extraArgs = nullptr) const;
+
+        template <typename OpName>
+        void applyTrueBroadcast(const NDArray<T>* other, NDArray<T>* target, const bool checkTargetShape = true, T *extraArgs = nullptr) const;
 
         template<typename OpName>
         void applyScalar(T scalar, NDArray<T>* target = nullptr, T *extraParams = nullptr);
@@ -320,6 +330,9 @@ namespace nd4j {
 
         void applyPairwiseLambda(NDArray<T>* other, const std::function<T(T, T)>& func, NDArray<T>* target = nullptr);
 #endif
+
+        template<typename OpName>
+        void applyRandom(nd4j::random::RandomBuffer *buffer, NDArray<T>* y = nullptr, NDArray<T>* z = nullptr, T* extraArgs = nullptr);
 
         // method makes copy of this array and applies to the copy the transpose operation, that is this array remains unaffected 
         NDArray<T> *transpose() const;
@@ -487,21 +500,30 @@ namespace nd4j {
 
         // addition operator array + scalar
         NDArray<T> operator+(const T scalar) const;
-#ifndef _MSC_VER
+
         // addition operator scalar + array
-        friend NDArray<T> nd4j::operator+<>(const T scalar, const NDArray<T>& arr);
-#endif
+        // friend NDArray<T> nd4j::operator+<>(const T scalar, const NDArray<T>& arr);    
+        // subtraction operator scalar - array
+        // friend NDArray<T> nd4j::operator-<>(const T scalar, const NDArray<T>& arr);    
+
+        // addition operator scalar + array
+        friend NDArray<float> nd4j::operator+(const float scalar, const NDArray<float>& arr);
+        friend NDArray<float16> nd4j::operator+(const float16 scalar, const NDArray<float16>& arr);
+        friend NDArray<double> nd4j::operator+(const double scalar, const NDArray<double>& arr);
+
+        // subtraction operator scalar - array
+        friend NDArray<float> nd4j::operator-(const float scalar, const NDArray<float>& arr);
+        friend NDArray<float16> nd4j::operator-(const float16 scalar, const NDArray<float16>& arr);
+        friend NDArray<double> nd4j::operator-(const double scalar, const NDArray<double>& arr);
+
+        // addition operator array1 += array2    
+        void operator+=(const NDArray<T>& other);
+
         // subtraction operator array - array
         NDArray<T> operator-(const NDArray<T>& other) const;
 
         // subtraction operator array - scalar
-        NDArray<T> operator-(const T& scalar) const;
-
-        // subtraction operator scalar - array
-        // friend NDArray<T> nd4j::operator-<>(const T scalar, const NDArray<T>& arr);
-        friend NDArray<float> nd4j::operator-(const float scalar, const NDArray<float>& arr);
-        friend NDArray<float16> nd4j::operator-(const float16 scalar, const NDArray<float16>& arr);
-        friend NDArray<double> nd4j::operator-(const double scalar, const NDArray<double>& arr);
+        NDArray<T> operator-(const T& scalar) const;        
 
         // negative operator, it makes all array elements = -elements
         NDArray<T> operator-() const;
@@ -524,7 +546,7 @@ namespace nd4j {
         // division operator array1 /= array2
         void operator/=(const NDArray<T>& other);
 
-        // division operator array*scalar
+        // division operator array /= scalar
         void operator/=(const T scalar);
 
         // mathematical multiplication of two arrays
@@ -717,21 +739,21 @@ FORCEINLINE bool NDArray<T>::isSameShape(const NDArray<T> *other) const {
 
 //////////////////////////////////////////////////////////////////////////
 template<typename T>
-FORCEINLINE bool NDArray<T>::isSameShape(std::initializer_list<int> other) {
+FORCEINLINE bool NDArray<T>::isSameShape(const std::initializer_list<int>& other) const {
     std::vector<int> shp(other);
     return isSameShape(shp);
 }
 
 //////////////////////////////////////////////////////////////////////////
 template<typename T>
-FORCEINLINE bool NDArray<T>::isSameShape(std::initializer_list<Nd4jIndex> other) {
+FORCEINLINE bool NDArray<T>::isSameShape(const std::initializer_list<Nd4jIndex>& other) const {
     std::vector<Nd4jIndex> shp(other);
     return isSameShape(shp);
 }
 
 //////////////////////////////////////////////////////////////////////////
 template<typename T>
-FORCEINLINE bool NDArray<T>::isSameShape(std::vector<Nd4jIndex>& other) {
+FORCEINLINE bool NDArray<T>::isSameShape(const std::vector<Nd4jIndex>& other) const {
     if (this->rankOf() != other.size())
         return false;
     for (int e = 0; e < this->rankOf(); e++) {
@@ -743,7 +765,7 @@ FORCEINLINE bool NDArray<T>::isSameShape(std::vector<Nd4jIndex>& other) {
 
 //////////////////////////////////////////////////////////////////////////
 template<typename T>
-FORCEINLINE bool NDArray<T>::isSameShape(std::vector<int>& other) {
+FORCEINLINE bool NDArray<T>::isSameShape(const std::vector<int>& other) const{
     if (this->rankOf() != (int) other.size())
         return false;
     for (int e = 0; e < this->rankOf(); e++) {

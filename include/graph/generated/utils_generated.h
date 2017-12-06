@@ -21,11 +21,14 @@ enum OpType {
   OpType_INDEX_ACCUMULATION = 2,
   OpType_SCALAR = 3,
   OpType_BROADCAST = 4,
+  OpType_PAIRWISE = 5,
+  OpType_ACCUMULATION3 = 6,
   OpType_SUMMARYSTATS = 7,
   OpType_SHAPE = 8,
   OpType_AGGREGATION = 9,
-  OpType_CUSTOM = 10,
-  OpType_GRAPH = 11,
+  OpType_RANDOM = 10,
+  OpType_CUSTOM = 11,
+  OpType_GRAPH = 12,
   OpType_VARIABLE = 30,
   OpType_BOOLEAN = 40,
   OpType_LOGIC = 119,
@@ -33,16 +36,19 @@ enum OpType {
   OpType_MAX = OpType_LOGIC
 };
 
-inline OpType (&EnumValuesOpType())[13] {
+inline OpType (&EnumValuesOpType())[16] {
   static OpType values[] = {
     OpType_TRANSFORM,
     OpType_ACCUMULATION,
     OpType_INDEX_ACCUMULATION,
     OpType_SCALAR,
     OpType_BROADCAST,
+    OpType_PAIRWISE,
+    OpType_ACCUMULATION3,
     OpType_SUMMARYSTATS,
     OpType_SHAPE,
     OpType_AGGREGATION,
+    OpType_RANDOM,
     OpType_CUSTOM,
     OpType_GRAPH,
     OpType_VARIABLE,
