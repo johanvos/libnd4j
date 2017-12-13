@@ -109,6 +109,12 @@ namespace shape {
 #ifdef __CUDACC__
 __host__ __device__
 #endif
+    ND4J_EXPORT int sizeAt(int *shape, int dim);
+
+
+#ifdef __CUDACC__
+    __host__ __device__
+#endif
     ND4J_EXPORT void traceNew(int id);
 
 
@@ -469,6 +475,12 @@ __host__ __device__
 #ifdef __CUDACC__
     __host__ __device__
 #endif
+
+ND4J_EXPORT bool isLikeVector(int *shapeInfo);
+#ifdef __CUDACC__
+    __host__ __device__
+#endif
+
 
     ND4J_EXPORT bool isRowVector(int *shapeInfo);
 
@@ -2784,6 +2796,22 @@ __device__ INLINEDEF int *cuMalloc(int *buffer, long size) {
     __host__ __device__
 #endif
 
+    INLINEDEF bool isLikeVector(int *shapeInfo) {
+                
+        int numOfNonUnity = 0;
+        for(int i = 1; i <= shapeInfo[0]; ++i) {
+            if(shapeInfo[i] != 1)
+                ++numOfNonUnity;
+        }
+        
+        return numOfNonUnity == 1 && shapeInfo[0] > 2;
+    }
+
+
+#ifdef __CUDACC__
+    __host__ __device__
+#endif
+
     INLINEDEF int isVector(int *shapeInfo) {
         return isVector(shape::shapeOf(shapeInfo),shape::rank(shapeInfo));
     }
@@ -3486,6 +3514,16 @@ __device__ INLINEDEF int *cuMalloc(int *buffer, long size) {
                 return false;
 
         return true;
+    }
+
+#ifdef __CUDACC__
+    __host__ __device__
+#endif
+    INLINEDEF int sizeAt(int *shape, int dim) {
+        if (dim >= 0)
+            return shape[1+dim];
+        else
+            return shape[1+(rank(shape) + dim)];
     }
 
     /**

@@ -127,3 +127,135 @@ TEST_F(BroadcastableOpsTests, Test_ScalarBroadcast_2) {
 
     delete result;
 }
+
+
+TEST_F(BroadcastableOpsTests, Test_Maximum_1) {
+    NDArray<float> x('c', {2, 3}, {1, 2, 1, 2, 3, 2});
+    NDArray<float> row('c', {1, 3}, {2, 2, 2});
+    NDArray<float> exp('c', {2, 3}, {2, 2, 2, 2, 3, 2});
+
+    nd4j::ops::maximum<float> op;
+    auto result = op.execute({&x, &row}, {}, {});
+    ASSERT_EQ(ND4J_STATUS_OK, result->status());
+
+    auto z = result->at(0);
+
+    ASSERT_TRUE(exp.isSameShape(z));
+    ASSERT_TRUE(exp.equalsTo(z));
+
+    delete result;
+}
+
+
+TEST_F(BroadcastableOpsTests, Test_Minimum_1) {
+    NDArray<float> x('c', {2, 3}, {1, 2, 1, 2, 3, 2});
+    NDArray<float> col('c', {2, 1}, {2, 1});
+    NDArray<float> exp('c', {2, 3}, {1, 2, 1, 1, 1, 1});
+
+    nd4j::ops::minimum<float> op;
+    auto result = op.execute({&x, &col}, {}, {});
+    ASSERT_EQ(ND4J_STATUS_OK, result->status());
+
+    auto z = result->at(0);
+
+    ASSERT_TRUE(exp.isSameShape(z));
+    ASSERT_TRUE(exp.equalsTo(z));
+
+    delete result;
+}
+
+
+TEST_F(BroadcastableOpsTests, Test_Shape_1) {
+    nd4j::ops::minimum<float> op;
+
+    int shapeX[] = {2, 2, 5, 5, 1, 0, 1, 99};
+    int shapeY[] = {2, 2, 5, 5, 1, 0, 1, 99};
+    ShapeList inputShape({shapeX, shapeY});
+    VariableSpace<float> vs;
+    Context<float> ctx(1, &vs, false);
+
+    auto shapes = op.calculateOutputShape(&inputShape, ctx);
+
+    auto shapeZ = shapes->at(0);
+    ASSERT_TRUE(shape::shapeEquals(shapeX, shapeZ));
+
+    shapes->destroy();
+    delete shapes;
+}
+
+TEST_F(BroadcastableOpsTests, Test_Shape_2) {
+    nd4j::ops::minimum<float> op;
+
+    int shapeX[] = {2, 1, 1, 1, 1, 0, 1, 99};
+    int shapeY[] = {2, 2, 5, 5, 1, 0, 1, 99};
+    ShapeList inputShape({shapeX, shapeY});
+    VariableSpace<float> vs;
+    Context<float> ctx(1, &vs, false);
+
+    auto shapes = op.calculateOutputShape(&inputShape, ctx);
+
+    auto shapeZ = shapes->at(0);
+    ASSERT_TRUE(shape::shapeEquals(shapeY, shapeZ));
+
+    shapes->destroy();
+    delete shapes;
+}
+
+
+TEST_F(BroadcastableOpsTests, Test_Shape_3) {
+    nd4j::ops::minimum<float> op;
+
+    int shapeX[] = {2, 5, 3, 1, 1, 0, 1, 99};
+    int shapeY[] = {2, 1, 3, 3, 1, 0, 1, 99};
+    ShapeList inputShape({shapeX, shapeY});
+    VariableSpace<float> vs;
+    Context<float> ctx(1, &vs, false);
+
+    auto shapes = op.calculateOutputShape(&inputShape, ctx);
+
+    auto shapeZ = shapes->at(0);
+    ASSERT_TRUE(shape::shapeEquals(shapeX, shapeZ));
+
+    shapes->destroy();
+    delete shapes;
+}
+
+
+TEST_F(BroadcastableOpsTests, Test_Shape_4) {
+    nd4j::ops::minimum<float> op;
+
+    int shapeX[] = {2, 5, 3, 1, 1, 0, 1, 99};
+    int shapeY[] = {2, 5, 1, 1, 1, 0, 1, 99};
+    ShapeList inputShape({shapeX, shapeY});
+    VariableSpace<float> vs;
+    Context<float> ctx(1, &vs, false);
+
+    auto shapes = op.calculateOutputShape(&inputShape, ctx);
+
+    auto shapeZ = shapes->at(0);
+    ASSERT_TRUE(shape::shapeEquals(shapeX, shapeZ));
+
+    shapes->destroy();
+    delete shapes;
+}
+
+// (2,1,3) + (4,3) = (2,4,3)
+
+TEST_F(BroadcastableOpsTests, Test_Shape_5) {
+    nd4j::ops::minimum<float> op;
+
+    int shapeX[] = {3, 2, 1, 3, 3, 3, 1, 0, 1, 99};
+    int shapeY[] = {2, 4, 3, 3, 1, 0, 1, 99};
+    int shapeE[] = {3, 2, 4, 3, 12, 3, 1, 0, 1, 99};
+    ShapeList inputShape({shapeX, shapeY});
+    VariableSpace<float> vs;
+    Context<float> ctx(1, &vs, false);
+
+    auto shapes = op.calculateOutputShape(&inputShape, ctx);
+
+    auto shapeZ = shapes->at(0);
+    ASSERT_TRUE(shape::shapeEquals(shapeE, shapeZ));
+
+    shapes->destroy();
+    delete shapes;
+}

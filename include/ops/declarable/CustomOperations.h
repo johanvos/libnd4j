@@ -27,6 +27,7 @@ namespace nd4j {
         DECLARE_REDUCTION_OP(testreduction, 1, 1, false, 0, -1);
         DECLARE_REDUCTION_OP(argmax, 1, 1, false, 0, -2);
         DECLARE_REDUCTION_OP(argmin, 1, 1, false, 0, -2);
+        DECLARE_REDUCTION_OP(norm, 1, 1, false, 1, -2);
 
         DECLARE_OP(noop, -1, -1, true);
         DECLARE_OP(testop2i2o, 2, 2, true);
@@ -34,9 +35,6 @@ namespace nd4j {
         DECLARE_OP(softmax_bp, 2, 1, true);
         DECLARE_OP(biasadd, 2, 1, true);
         DECLARE_OP(floor, 1, 1, true);
-        DECLARE_OP(floormod, 2, 1, true);
-        DECLARE_OP(floordiv, 2, 1, true)
-        DECLARE_OP(realdiv, 2, 1, true);
         DECLARE_OP(merge, -1, 1, true);         // should become custom
         DECLARE_OP(broadcastgradientargs, 2, 2, true);
         DECLARE_OP(assign, 2, 1, false);
@@ -46,18 +44,8 @@ namespace nd4j {
         DECLARE_OP(mergeavg, -1, 1, false);
         DECLARE_OP(identity, 1, 1, true);
         DECLARE_OP(identity_bp, 2, 1, true);
-        DECLARE_OP(add, 2, 1, true);
-        DECLARE_OP(subtract, 2, 1, true);
-        DECLARE_OP(reversesubtract, 2, 1, true);
-        DECLARE_OP(reversemod, 2, 1, true);
-        DECLARE_OP(squaredsubtract, 2, 1, true)
-        DECLARE_OP(multiply, 2, 1, true);
-        DECLARE_OP(divide, 2, 1, true);
-        DECLARE_OP(reversedivide, 2, 1, true);
         DECLARE_OP(zeros_as, 1, 1, false);
         DECLARE_OP(ones_as, 1, 1, false);
-        DECLARE_OP(maximum, 2, 1, true);
-        DECLARE_OP(minimum, 2, 1, true);
         DECLARE_OP(square, 1, 1, true);
         DECLARE_OP(equals, 2, 1, true);
         DECLARE_OP(not_equals, 2, 1, true);
@@ -68,6 +56,15 @@ namespace nd4j {
         DECLARE_OP(log1p, 2, 1, true);
         DECLARE_OP(toggle_bits, -1, -1, true);
         DECLARE_OP(rint, 1, 1, true);
+        DECLARE_OP(listdiff, 2, 2, false);
+
+        DECLARE_OP(to_double, 1, 1, true);
+        DECLARE_OP(to_float16, 1, 1, true);
+        DECLARE_OP(to_float32, 1, 1, true);
+        DECLARE_OP(to_int32, 1, 1, true);
+        DECLARE_OP(to_int64, 1, 1, true);
+        DECLARE_OP(to_uint32, 1, 1, true);
+        DECLARE_OP(to_uint64, 1, 1, true);
 
         DECLARE_OP(scatter_add, 3, 1, true);
         DECLARE_OP(scatter_sub, 3, 1, true);
@@ -83,6 +80,21 @@ namespace nd4j {
         DECLARE_LOGIC_OP(Scope);
         DECLARE_LOGIC_OP(Conditional);
         DECLARE_LOGIC_OP(Return);
+
+        // TODO: make broadcastables separate class
+        DECLARE_CUSTOM_OP(maximum, 2, 1, true, 0, 0);
+        DECLARE_CUSTOM_OP(minimum, 2, 1, true, 0, 0);
+        DECLARE_CUSTOM_OP(add, 2, 1, true, 0, 0);
+        DECLARE_CUSTOM_OP(subtract, 2, 1, true, 0, 0);
+        DECLARE_CUSTOM_OP(reversesubtract, 2, 1, true, 0, 0);
+        DECLARE_CUSTOM_OP(reversemod, 2, 1, true, 0, 0);
+        DECLARE_CUSTOM_OP(squaredsubtract, 2, 1, true, 0, 0)
+        DECLARE_CUSTOM_OP(multiply, 2, 1, true, 0, 0);
+        DECLARE_CUSTOM_OP(divide, 2, 1, true, 0, 0);
+        DECLARE_CUSTOM_OP(reversedivide, 2, 1, true, 0, 0);
+        DECLARE_CUSTOM_OP(floormod, 2, 1, true, 0, 0);
+        DECLARE_CUSTOM_OP(floordiv, 2, 1, true, 0, 0)
+        DECLARE_CUSTOM_OP(realdiv, 2, 1, true, 0, 0);
 
         DECLARE_CUSTOM_OP(testcustom, 1, 1, false, 0, -1);
         DECLARE_CUSTOM_OP(concat, -1, 1, false, 0, 1);
@@ -155,8 +167,14 @@ namespace nd4j {
         DECLARE_CUSTOM_OP(batchnorm, 5, 1, false, 1, 2);
         DECLARE_CUSTOM_OP(unique, 1, 2, false, 0, 0);
         DECLARE_CUSTOM_OP(lstmCell, 8, 2, false, 3, 2);
+        DECLARE_CUSTOM_OP(set_seed, -2, 1, false, 0, -2);
+        DECLARE_CUSTOM_OP(get_seed, -2, 1, false, 0, 0);
+        DECLARE_CUSTOM_OP(shapes_of, -1, -1, false, 0, 0)
         DECLARE_CUSTOM_OP(sruCell, 4, 2, false, 0, 0);
         DECLARE_CUSTOM_OP(gruCell, 5, 1, false, 0, 0);
+        DECLARE_CUSTOM_OP(diag, 1, 1, false, 0, 0);
+        DECLARE_CUSTOM_OP(diag_part, 1, 1, false, 0, 0);
+        DECLARE_CUSTOM_OP(tile, 1, 1, false, 0, -2);
 
         // recurrent ops
         DECLARE_CUSTOM_OP(sru,         5, 2, false, 0, 0);
@@ -167,6 +185,10 @@ namespace nd4j {
         DECLARE_CUSTOM_OP(sru_bi_bp,   8, 4, true,  0, 0);
                 
         DECLARE_CONFIGURABLE_OP(clipbyvalue, 1, 1, true, 2, 0);
+        DECLARE_CONFIGURABLE_OP(clipbynorm, 1, 1, true, 1, 0);
+        DECLARE_CONFIGURABLE_OP(clipbyavgnorm, 1, 1, true, 1, 0);
+        DECLARE_CONFIGURABLE_OP(cumsum, 1, 1, true, 0, -2);
+        DECLARE_CONFIGURABLE_OP(cumprod, 1, 1, true, 0, -2);
         DECLARE_CONFIGURABLE_OP(scatter_update, 2, 1, true, 0, -1);
         DECLARE_CONFIGURABLE_OP(relu, 1, 1, true, 1, 0);        
         DECLARE_CONFIGURABLE_OP(randomuniform, 1, 1, true, 2, 0);        
@@ -177,6 +199,10 @@ namespace nd4j {
         DECLARE_CONFIGURABLE_OP(reverse, 1, 1, true, 0, -2);
         DECLARE_CONFIGURABLE_OP(axpy, 2, 1, false, -2, 0);
         DECLARE_CONFIGURABLE_OP(apply_sgd, 2, 1, true, -2, 0);
+        DECLARE_CONFIGURABLE_OP(invert_permutation, 1, 1, false, 0, 0);        
+        DECLARE_CONFIGURABLE_OP(matrix_set_diag, 2, 1, false, 0, 0)
+        DECLARE_CONFIGURABLE_OP(betainc, 3, 1, false, 0, 0)
+        DECLARE_CONFIGURABLE_OP(zeta, 2, 1, false, 0, 0)
 
         // grad ops
         DECLARE_CONFIGURABLE_OP(sigmoid_bp, 2, 1, true, 0, 0);

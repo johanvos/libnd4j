@@ -2,6 +2,7 @@
 // Created by raver119 on 16.10.2017.
 //
 
+#include <helpers/ShapeUtils.h>
 #include <ops/declarable/LegacyPairwiseTransformOp.h>
 
 
@@ -17,6 +18,10 @@ namespace nd4j {
             // just a no-op
         }
 
+        template <typename T>
+        LegacyOp<T>* LegacyPairwiseTransformOp<T>::clone() {
+            return new LegacyPairwiseTransformOp(this->_opNum);
+        }
 
         template <typename T>
         Nd4jStatus LegacyPairwiseTransformOp<T>::validateAndExecute(Context<T> &block) {
@@ -24,7 +29,11 @@ namespace nd4j {
             auto y = INPUT_VARIABLE(1);
             auto z = OUTPUT_VARIABLE(0);
 
-            REQUIRE_TRUE(x->isSameShape(y) || y->isScalar(), 0, "Node_%i: For Pairwise transforms shapes of both operands should be equal", block.getNodeId());
+            if (!x->isSameShape(y)) {
+                std::string sx = ShapeUtils<T>::shapeAsString(*x);
+                std::string sy = ShapeUtils<T>::shapeAsString(*y);
+                REQUIRE_TRUE(x->isSameShape(y) || y->isScalar(), 0, "Node_%i: For Pairwise transforms shapes of both operands should be equal but got %s vs %s", block.getNodeId(), sx.c_str(), sy.c_str());
+            }
 
             int opNum = block.opNum() < 0 ? this->_opNum : block.opNum();
 
