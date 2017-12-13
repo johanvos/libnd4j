@@ -50,7 +50,9 @@
 #endif
 
 #ifdef __cplusplus
+#ifndef IOS
 extern "C" {
+#endif /* IOS */
 #endif /* __cplusplus */
 #include <dll.h>
 #include <stdlib.h>
@@ -16289,7 +16291,9 @@ void LAPACK_zsyr( char* uplo, lapack_int* n, lapack_complex_double* alpha,
 lapack_complex_double* a, lapack_int* lda );
 
 #ifdef __cplusplus
+#ifndef IOS
 }
+#endif /* IOS */
 #endif /* __cplusplus */
 
 #endif /* _LAPACKE_H_ */
